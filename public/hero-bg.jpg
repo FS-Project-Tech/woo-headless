@@ -1,0 +1,14 @@
+<!-- Placeholder SVG for hero background -->
+<svg width="1200" height="600" viewBox="0 0 1200 600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="heroGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3B82F6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1E40AF;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="600" fill="url(#heroGradient)"/>
+  <circle cx="200" cy="150" r="80" fill="white" fill-opacity="0.1"/>
+  <circle cx="1000" cy="450" r="120" fill="white" fill-opacity="0.05"/>
+  <rect x="300" y="200" width="600" height="200" rx="20" fill="white" fill-opacity="0.1"/>
+</svg>
+

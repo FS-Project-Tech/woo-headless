@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://your-store.com/sitemap.xml
+
+# Crawl-delay for respectful crawling
+Crawl-delay: 1
+
