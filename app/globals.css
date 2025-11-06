@@ -1,0 +1,68 @@
+@import "tailwindcss";
+@import "swiper/css";
+@import "swiper/css/navigation";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  
+  /* Teal color overrides using hex values to avoid lab() color function issues */
+  --color-teal-50: #f0fdfa;
+  --color-teal-100: #ccfbf1;
+  --color-teal-200: #99f6e4;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
+  --color-teal-600: #0d9488;
+  --color-teal-700: #0f766e;
+  --color-teal-800: #115e59;
+  --color-teal-900: #134e4a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Hide horizontal/vertical scrollbars for custom sliders */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE 10+ */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Safari and Chrome */
+}
+
+/* Swiper navigation: smaller gray arrows with transparent circular background */
+:root {
+  --swiper-navigation-size: 18px; /* default ~44px; make arrows smaller */
+}
+.swiper-button-next,
+.swiper-button-prev {
+  color: #6b7280; /* gray-500 */
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  background-color: transparent;
+}
+.swiper-button-next:hover,
+.swiper-button-prev:hover {
+  color: #374151; /* gray-700 */
+}
+
+/* Remove brand utilities and gradient: revert to defaults */
