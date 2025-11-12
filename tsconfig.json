@@ -3,17 +3,24 @@
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
-    "skipLibCheck": true,
+    // Performance optimizations
+    "skipLibCheck": true, // Skip type checking in node_modules - major speed boost
     "strict": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
-    "isolatedModules": true,
+    "isolatedModules": true, // Required for fast refresh
     "jsx": "react-jsx",
+    
+    // Incremental compilation - critical for speed
     "incremental": true,
     "tsBuildInfoFile": ".next/cache/tsconfig.tsbuildinfo",
+    
+    // Additional performance settings
+    "assumeChangesOnlyAffectDirectDependencies": true, // Faster type checking
+    
     "plugins": [
       {
         "name": "next"
@@ -31,5 +38,11 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    ".next",
+    "out",
+    "dist",
+    "build"
+  ]
 }

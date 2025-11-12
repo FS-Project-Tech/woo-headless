@@ -5,21 +5,34 @@
   "scripts": {
     "dev": "next dev --turbo",
     "dev:legacy": "next dev",
+    "dev:debug": "NODE_OPTIONS='--inspect' next dev --turbo",
     "build": "next build",
+    "build:analyze": "ANALYZE=true next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint --cache --cache-location .next/cache/.eslintcache",
+    "lint:fix": "eslint --fix --cache --cache-location .next/cache/.eslintcache",
+    "type-check": "tsc --noEmit --incremental",
+    "clean": "rimraf .next out .turbo node_modules/.cache",
+    "clean:cache": "rimraf .next/cache .turbo",
+    "clean:all": "npm run clean:cache && rimraf node_modules/.cache"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
+    "@tanstack/react-query": "^5.90.7",
     "axios": "^1.13.1",
     "framer-motion": "^12.23.24",
     "html2pdf.js": "^0.12.1",
+    "lucide-react": "^0.552.0",
     "next": "16.0.1",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "react-hook-form": "^7.66.0",
     "swiper": "^12.0.3",
+    "yup": "^1.7.1",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -30,6 +43,7 @@
     "eslint-config-next": "16.0.1",
     "postcss-lab-function": "^7.0.12",
     "postcss-preset-env": "^10.4.0",
+    "rimraf": "^6.0.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
