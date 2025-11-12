@@ -31,6 +31,9 @@ export default function FilterSidebar({ categorySlug }: FilterSidebarProps) {
     ratings: [5, 4, 3, 2, 1],
   });
   const [loading, setLoading] = useState(true);
+  const [brandsLoading, setBrandsLoading] = useState(false);
+  const [categoriesLoaded, setCategoriesLoaded] = useState(false);
+  const [priceLoaded, setPriceLoaded] = useState(false);
 
   // Mark as mounted after hydration and expand all sections by default
   useEffect(() => {
@@ -41,7 +44,7 @@ export default function FilterSidebar({ categorySlug }: FilterSidebarProps) {
       setSearchParamsString(window.location.search);
     }
     // Expand all sections by default after mount
-    setExpandedSections(new Set(["category", "price", "brand", "rating", "availability", "sort"]));
+    setExpandedSections(new Set(["category", "price", "brand"]));
   }, []);
 
   // Update search params when URL changes (for browser back/forward and filter changes)
@@ -84,34 +87,22 @@ export default function FilterSidebar({ categorySlug }: FilterSidebarProps) {
     return new URLSearchParams(cleanSearch);
   }, [searchParamsString]);
 
-  // Fetch filter data based on selected categories
+  // Load static filters (categories and price) only once on mount
   useEffect(() => {
-    if (!isMounted) return;
+    if (!isMounted || categoriesLoaded || priceLoaded) return;
 
-    const fetchFilterData = async () => {
+    const fetchStaticFilters = async () => {
       setLoading(true);
       try {
-        // Get the first selected category for dynamic filtering
-        // Read directly from searchParams to avoid dependency on activeFilters
-        const categoriesFromUrl = searchParams.get("categories")?.split(",").filter(Boolean) || [];
-        const selectedCat = categoriesFromUrl[0] || undefined;
-        const categoryParam = selectedCat ? `?category=${encodeURIComponent(selectedCat)}` : "";
-        
-        const [categoriesRes, brandsRes, priceRes] = await Promise.all([
-          // Always fetch top-level categories for the main filter list
+        const [categoriesRes, priceRes] = await Promise.all([
           fetch("/api/filters/categories").catch(() => null),
-          fetch("/api/filters/brands" + categoryParam).catch(() => null),
-          fetch("/api/filters/price-range" + categoryParam).catch(() => null),
+          fetch("/api/filters/price-range").catch(() => null), // Get global price range
         ]);
 
         if (categoriesRes?.ok) {
           const catData = await categoriesRes.json();
           setFilterData((prev) => ({ ...prev, categories: catData.categories || [] }));
-        }
-
-        if (brandsRes?.ok) {
-          const brandData = await brandsRes.json();
-          setFilterData((prev) => ({ ...prev, brands: brandData.brands || [] }));
+          setCategoriesLoaded(true);
         }
 
         if (priceRes?.ok) {
@@ -120,16 +111,72 @@ export default function FilterSidebar({ categorySlug }: FilterSidebarProps) {
             ...prev,
             priceRange: { min: priceData.min || 0, max: priceData.max || 1000 },
           }));
+          setPriceLoaded(true);
         }
       } catch (error) {
-        console.error("Error fetching filter data:", error);
+        console.error("Error fetching static filter data:", error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchFilterData();
-  }, [searchParamsString, isMounted]); // Removed categorySlug and searchParams to keep array stable
+    fetchStaticFilters();
+  }, [isMounted, categoriesLoaded, priceLoaded]);
+
+  // Fetch brands dynamically based on current category
+  useEffect(() => {
+    if (!isMounted) return;
+
+    const fetchBrands = async () => {
+      setBrandsLoading(true);
+      // Clear brands immediately when category changes for better UX
+      setFilterData((prev) => ({ ...prev, brands: [] }));
+      
+      try {
+        // Get the current category from pathname or query params for dynamic filtering
+        let selectedCat: string | undefined = undefined;
+        
+        // First check pathname for category page (most reliable)
+        if (pathname && pathname.startsWith('/product-category/')) {
+          const match = pathname.match(/\/product-category\/([^\/\?]+)/);
+          if (match) {
+            selectedCat = match[1];
+          }
+        }
+        
+        // Use categorySlug prop if provided (for category pages) - this is the most reliable
+        if (!selectedCat && categorySlug) {
+          selectedCat = categorySlug;
+        }
+        
+        // Fallback to query params if no category in pathname
+        if (!selectedCat) {
+          const urlParams = new URLSearchParams(searchParamsString.startsWith('?') ? searchParamsString.slice(1) : searchParamsString);
+          const categoriesFromUrl = urlParams.get("categories")?.split(",").filter(Boolean) || [];
+          selectedCat = categoriesFromUrl[0] || undefined;
+        }
+        
+        const categoryParam = selectedCat ? `?category=${encodeURIComponent(selectedCat)}` : "";
+        
+        const brandsRes = await fetch("/api/filters/brands" + categoryParam).catch(() => null);
+
+        if (brandsRes?.ok) {
+          const brandData = await brandsRes.json();
+          setFilterData((prev) => ({ ...prev, brands: brandData.brands || [] }));
+        } else {
+          // If no brands found, set empty array
+          setFilterData((prev) => ({ ...prev, brands: [] }));
+        }
+      } catch (error) {
+        console.error("Error fetching brands:", error);
+        setFilterData((prev) => ({ ...prev, brands: [] }));
+      } finally {
+        setBrandsLoading(false);
+      }
+    };
+
+    fetchBrands();
+  }, [isMounted, pathname, categorySlug, searchParamsString]); // Only refetch brands when category changes
 
   // Get current filter values from URL
   const activeFilters = useMemo(() => {
@@ -139,21 +186,33 @@ export default function FilterSidebar({ categorySlug }: FilterSidebarProps) {
         brands: [] as string[],
         minPrice: "",
         maxPrice: "",
-        minRating: "",
-        availability: "",
         sortBy: "relevance",
       };
     }
+    
+    // Extract category from pathname if on category page
+    let currentCategorySlug: string | null = null;
+    if (pathname && pathname.startsWith('/product-category/')) {
+      const match = pathname.match(/\/product-category\/([^\/\?]+)/);
+      if (match) {
+        currentCategorySlug = match[1];
+      }
+    }
+    
+    // Get categories from query params, or use pathname category
+    const queryCategories = searchParams.get("categories")?.split(",").filter(Boolean) || [];
+    const categories = currentCategorySlug 
+      ? [currentCategorySlug, ...queryCategories.filter(c => c !== currentCategorySlug)]
+      : queryCategories;
+    
     return {
-      categories: searchParams.get("categories")?.split(",").filter(Boolean) || [],
+      categories,
       brands: searchParams.get("brands")?.split(",").filter(Boolean) || [],
       minPrice: searchParams.get("minPrice") || "",
       maxPrice: searchParams.get("maxPrice") || "",
-      minRating: searchParams.get("minRating") || "",
-      availability: searchParams.get("availability") || "",
       sortBy: searchParams.get("sortBy") || "relevance",
     };
-  }, [searchParams, isMounted]);
+  }, [searchParams, isMounted, pathname]);
 
   // Toggle filter section
   const toggleSection = (section: string) => {
@@ -200,14 +259,37 @@ export default function FilterSidebar({ categorySlug }: FilterSidebarProps) {
     setSearchParamsString(newSearch ? `?${newSearch}` : "");
   };
 
-  // Handle category filter - toggle category like brands
+  // Handle category filter - navigate to category page instead of query param
   const handleCategoryToggle = (categorySlug: string) => {
-    if (!isMounted) return;
-    const currentCategories = activeFilters.categories || [];
-    const newCategories = currentCategories.includes(categorySlug)
-      ? currentCategories.filter((c) => c !== categorySlug)
-      : [...currentCategories, categorySlug];
-    updateFilters({ categories: newCategories });
+    if (!isMounted || !pathname) return;
+    
+    // Check if this category is already selected (we're on its page)
+    const isCurrentCategory = pathname.includes(`/product-category/${categorySlug}`);
+    
+    if (isCurrentCategory) {
+      // If clicking the current category, navigate back to shop
+      const currentSearch = searchParamsString.startsWith('?') 
+        ? searchParamsString.slice(1) 
+        : searchParamsString;
+      const params = new URLSearchParams(currentSearch);
+      params.delete("page"); // Reset pagination
+      
+      const newSearch = params.toString();
+      router.push(`/shop${newSearch ? `?${newSearch}` : ""}`, { scroll: false });
+    } else {
+      // Navigate to the category page, preserving other filters
+      const currentSearch = searchParamsString.startsWith('?') 
+        ? searchParamsString.slice(1) 
+        : searchParamsString;
+      const params = new URLSearchParams(currentSearch);
+      
+      // Remove category from query params (we're navigating to category page)
+      params.delete("categories");
+      params.delete("page"); // Reset pagination
+      
+      const newSearch = params.toString();
+      router.push(`/product-category/${categorySlug}${newSearch ? `?${newSearch}` : ""}`, { scroll: false });
+    }
   };
 
   // Handle brand filter
@@ -227,20 +309,6 @@ export default function FilterSidebar({ categorySlug }: FilterSidebarProps) {
     });
   };
 
-  // Handle rating filter
-  const handleRatingChange = (rating: string) => {
-    updateFilters({ minRating: rating === activeFilters.minRating ? null : rating });
-  };
-
-  // Handle availability filter
-  const handleAvailabilityChange = (availability: string) => {
-    updateFilters({ availability: availability === activeFilters.availability ? null : availability });
-  };
-
-  // Handle sort
-  const handleSortChange = (sortBy: string) => {
-    updateFilters({ sortBy: sortBy === "relevance" ? null : sortBy });
-  };
 
   // Clear all filters
   const clearAllFilters = () => {
@@ -251,39 +319,24 @@ export default function FilterSidebar({ categorySlug }: FilterSidebarProps) {
   // Check if any filters are active
   const hasActiveFilters = useMemo(() => {
     return !!(
-      activeFilters.categories.length > 0 ||
       activeFilters.brands.length > 0 ||
       activeFilters.minPrice ||
-      activeFilters.maxPrice ||
-      activeFilters.minRating ||
-      activeFilters.availability ||
-      activeFilters.sortBy !== "relevance"
+      activeFilters.maxPrice
     );
   }, [activeFilters]);
 
-  // Show loading state during initial mount or data fetch
-  if (!isMounted) {
-    return (
-      <aside className="w-full lg:w-64 space-y-4">
-        <div className="animate-pulse space-y-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-32 bg-gray-200 rounded"></div>
-          ))}
-        </div>
-      </aside>
-    );
-  }
-  
-  if (loading) {
-    return (
-      <aside className="w-full lg:w-64 space-y-4">
-        <div className="animate-pulse space-y-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-32 bg-gray-200 rounded"></div>
-          ))}
-        </div>
-      </aside>
-    );
+  // Show loading state only during initial static filter load
+  // Return consistent skeleton for both server and client initial render
+  if (!isMounted || (loading && !categoriesLoaded)) {
+      return (
+        <aside className="w-full lg:w-64 space-y-4" suppressHydrationWarning>
+          <div className="animate-pulse space-y-4" suppressHydrationWarning>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-32 bg-gray-200 rounded" suppressHydrationWarning></div>
+            ))}
+          </div>
+        </aside>
+      );
   }
 
   return (
@@ -335,64 +388,36 @@ export default function FilterSidebar({ categorySlug }: FilterSidebarProps) {
         )}
       </FilterSection>
 
-      {/* Brand Filter */}
-      {filterData.brands.length > 0 && (
-        <FilterSection
-          title="Brand"
-          isExpanded={expandedSections.has("brand")}
-          onToggle={() => toggleSection("brand")}
-          count={activeFilters.brands.length}
-        >
+      {/* Brand Filter - Only show brands related to current category */}
+      <FilterSection
+        title="Brand"
+        isExpanded={expandedSections.has("brand")}
+        onToggle={() => toggleSection("brand")}
+        count={activeFilters.brands.length}
+      >
+        {brandsLoading ? (
+          <div className="py-4">
+            <div className="animate-pulse space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-6 bg-gray-200 rounded"></div>
+              ))}
+            </div>
+          </div>
+        ) : filterData.brands.length > 0 ? (
           <BrandFilter
             brands={filterData.brands}
             selectedBrands={activeFilters.brands}
             onToggle={handleBrandToggle}
           />
-        </FilterSection>
-      )}
-
-      {/* Rating Filter */}
-      <FilterSection
-        title="Customer Rating"
-        isExpanded={expandedSections.has("rating")}
-        onToggle={() => toggleSection("rating")}
-        count={activeFilters.minRating ? 1 : 0}
-      >
-        <RatingFilter
-          selectedRating={activeFilters.minRating}
-          onSelect={handleRatingChange}
-        />
-      </FilterSection>
-
-      {/* Availability Filter */}
-      <FilterSection
-        title="Availability"
-        isExpanded={expandedSections.has("availability")}
-        onToggle={() => toggleSection("availability")}
-        count={activeFilters.availability ? 1 : 0}
-      >
-        <AvailabilityFilter
-          selected={activeFilters.availability}
-          onSelect={handleAvailabilityChange}
-        />
-      </FilterSection>
-
-      {/* Sort */}
-      <FilterSection
-        title="Sort By"
-        isExpanded={expandedSections.has("sort")}
-        onToggle={() => toggleSection("sort")}
-      >
-        <SortFilter
-          selected={activeFilters.sortBy}
-          onSelect={handleSortChange}
-        />
+        ) : (
+          <p className="text-sm text-gray-500 py-2">No brands available for this category</p>
+        )}
       </FilterSection>
     </aside>
   );
 }
 
-// Category Filter Component with expandable children
+// Category Filter Component - Clickable links without checkboxes
 function CategoryFilter({
   categories,
   selectedCategories,
@@ -441,15 +466,11 @@ function CategoryFilter({
 
           return (
             <div key={cat.id || categorySlug}>
-              <label className="flex items-center cursor-pointer group py-1.5">
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={() => onToggle(categorySlug)}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <span
-                  className={`ml-2 flex-1 text-sm ${
+              <div className="flex items-center group py-1.5">
+                <button
+                  type="button"
+                  onClick={() => onToggle(categorySlug)}
+                  className={`flex-1 text-left text-sm transition-colors cursor-pointer ${
                     isSelected
                       ? "text-blue-600 font-medium"
                       : "text-gray-700 group-hover:text-gray-900"
@@ -459,7 +480,7 @@ function CategoryFilter({
                   {cat.count !== undefined && cat.count > 0 && (
                     <span className="ml-1 text-gray-500">({cat.count})</span>
                   )}
-                </span>
+                </button>
                 {hasChildren && (
                   <button
                     type="button"
@@ -482,7 +503,7 @@ function CategoryFilter({
                     </svg>
                   </button>
                 )}
-              </label>
+              </div>
               {/* Child categories */}
               {isExpanded && children.length > 0 && (
                 <ul className="ml-6 mt-1 space-y-1 border-l border-gray-200 pl-2">
@@ -491,26 +512,20 @@ function CategoryFilter({
                     const isChildSelected = selectedCategories.includes(childSlug);
                     return (
                       <li key={child.id || childSlug}>
-                        <label className="flex items-center cursor-pointer group py-1">
-                          <input
-                            type="checkbox"
-                            checked={isChildSelected}
-                            onChange={() => onToggle(childSlug)}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <span
-                            className={`ml-2 text-sm ${
-                              isChildSelected
-                                ? "text-blue-600 font-medium"
-                                : "text-gray-700 group-hover:text-gray-900"
-                            }`}
-                          >
-                            {child.name}
-                            {child.count !== undefined && child.count > 0 && (
-                              <span className="ml-1 text-gray-500">({child.count})</span>
-                            )}
-                          </span>
-                        </label>
+                        <button
+                          type="button"
+                          onClick={() => onToggle(childSlug)}
+                          className={`text-sm transition-colors cursor-pointer ${
+                            isChildSelected
+                              ? "text-blue-600 font-medium"
+                              : "text-gray-700 hover:text-gray-900"
+                          }`}
+                        >
+                          {child.name}
+                          {child.count !== undefined && child.count > 0 && (
+                            <span className="ml-1 text-gray-500">({child.count})</span>
+                          )}
+                        </button>
                       </li>
                     );
                   })}
@@ -570,130 +585,4 @@ function BrandFilter({
   );
 }
 
-// Rating Filter Component
-function RatingFilter({
-  selectedRating,
-  onSelect,
-}: {
-  selectedRating: string;
-  onSelect: (rating: string) => void;
-}) {
-  const ratings = [5, 4, 3, 2, 1];
-  return (
-    <div className="space-y-1">
-      {ratings.map((rating) => {
-        const isSelected = selectedRating === String(rating);
-        return (
-          <label
-            key={rating}
-            className="flex items-center cursor-pointer group py-1.5"
-          >
-            <input
-              type="radio"
-              name="rating"
-              checked={isSelected}
-              onChange={() => onSelect(String(rating))}
-              className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-            />
-            <span className={`ml-2 text-sm ${isSelected ? "text-blue-600 font-medium" : "text-gray-700"}`}>
-              <span className="text-yellow-500">
-                {"★".repeat(rating)}
-                {"☆".repeat(5 - rating)}
-              </span>
-              <span className="ml-1">& Up</span>
-            </span>
-          </label>
-        );
-      })}
-    </div>
-  );
-}
-
-// Availability Filter Component
-function AvailabilityFilter({
-  selected,
-  onSelect,
-}: {
-  selected: string;
-  onSelect: (value: string) => void;
-}) {
-  const options = [
-    { value: "in_stock", label: "In Stock" },
-    { value: "out_of_stock", label: "Out of Stock" },
-  ];
-  return (
-    <div className="space-y-1">
-      {options.map((option) => {
-        const isSelected = selected === option.value;
-        return (
-          <label
-            key={option.value}
-            className="flex items-center cursor-pointer group py-1.5"
-          >
-            <input
-              type="radio"
-              name="availability"
-              checked={isSelected}
-              onChange={() => onSelect(option.value)}
-              className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-            />
-            <span
-              className={`ml-2 text-sm ${
-                isSelected ? "text-blue-600 font-medium" : "text-gray-700 group-hover:text-gray-900"
-              }`}
-            >
-              {option.label}
-            </span>
-          </label>
-        );
-      })}
-    </div>
-  );
-}
-
-// Sort Filter Component
-function SortFilter({
-  selected,
-  onSelect,
-}: {
-  selected: string;
-  onSelect: (value: string) => void;
-}) {
-  const options = [
-    { value: "relevance", label: "Relevance" },
-    { value: "price_low", label: "Price: Low to High" },
-    { value: "price_high", label: "Price: High to Low" },
-    { value: "newest", label: "Newest First" },
-    { value: "rating", label: "Top Rated" },
-    { value: "popularity", label: "Most Popular" },
-  ];
-  return (
-    <div className="space-y-1">
-      {options.map((option) => {
-        const isSelected = selected === option.value;
-        return (
-          <label
-            key={option.value}
-            className="flex items-center cursor-pointer group py-1.5"
-          >
-            <input
-              type="radio"
-              name="sort"
-              checked={isSelected}
-              onChange={() => onSelect(option.value)}
-              className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-            />
-            <span
-              className={`ml-2 text-sm ${
-                isSelected ? "text-blue-600 font-medium" : "text-gray-700 group-hover:text-gray-900"
-              }`}
-            >
-              {option.label}
-            </span>
-          </label>
-        );
-      })}
-    </div>
-  );
-}
 

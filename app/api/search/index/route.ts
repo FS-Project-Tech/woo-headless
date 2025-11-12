@@ -151,10 +151,46 @@ export async function GET() {
       brands = [];
     }
     
+    // Fetch tags from product_tag taxonomy (WordPress REST API)
+    let tags: any[] = [];
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_WC_API_URL || '';
+      const url = new URL(apiUrl);
+      const wpBase = `${url.protocol}//${url.host}/wp-json/wp/v2`;
+      
+      const tagsRes = await fetch(`${wpBase}/product_tag?per_page=100&hide_empty=true&_fields=id,name,slug`, {
+        cache: 'no-store',
+      });
+      
+      if (tagsRes.ok) {
+        const tagData = await tagsRes.json();
+        tags = Array.isArray(tagData) ? tagData : [];
+      } else {
+        // Fallback to WooCommerce API
+        try {
+          const fallbackRes = await wcAPI.get('/products/tags', {
+            params: {
+              per_page: 100,
+              hide_empty: true,
+              _fields: 'id,name,slug',
+            },
+          });
+          tags = fallbackRes.data || [];
+        } catch (fallbackError) {
+          console.error('Fallback tag fetch failed:', fallbackError);
+          tags = [];
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching tags:', error);
+      tags = [];
+    }
+    
     const indexData = {
       products: products.slice(0, 1000), // Limit to 1000 products for performance
       categories,
       brands,
+      tags,
       timestamp: now,
       totalProducts: products.length,
     };
@@ -175,6 +211,7 @@ export async function GET() {
         products: [],
         categories: [],
         brands: [],
+        tags: [],
         timestamp: Date.now(),
         totalProducts: 0,
       },

@@ -1,43 +1,98 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import axios from 'axios';
 
-type User = { id?: number; name?: string; email?: string } | null;
+interface User {
+  id: number;
+  email: string;
+  name: string;
+  username: string;
+  roles: string[];
+}
 
-const AuthCtx = createContext<{ user: User; loading: boolean; refresh: () => void; logout: () => Promise<void>; } | null>(null);
+interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+  refresh: () => Promise<void>;
+  logout: () => Promise<void>;
+}
 
-export default function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User>(null);
-  const [loading, setLoading] = useState(false); // Start as false to not block initial render
+const AuthContext = createContext<AuthContextType | null>(null);
 
-  const load = async () => {
-    setLoading(true);
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchUser = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/me', { cache: 'no-store' });
-      const json = await res.json();
-      setUser(json.user || null);
+      const response = await axios.get('/api/auth/me', {
+        withCredentials: true,
+      });
+      if (response.data && response.data.user) {
+        setUser(response.data.user);
+      } else {
+        setUser(null);
+      }
+    } catch (error: any) {
+      // 401 or 404 means not authenticated - this is expected
+      if (error.response?.status === 401 || error.response?.status === 404) {
+        setUser(null);
+      } else {
+        console.error('Auth fetch error:', error);
+        setUser(null);
+      }
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => { 
-    // Load auth state after initial render to avoid blocking
-    load(); 
   }, []);
 
-  const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    await load();
-  };
+  const logout = useCallback(async () => {
+    try {
+      await axios.post('/api/auth/logout');
+      setUser(null);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  }, []);
 
-  return <AuthCtx.Provider value={{ user, loading, refresh: load, logout }}>{children}</AuthCtx.Provider>;
+  useEffect(() => {
+    fetchUser();
+    
+    // Listen for storage events (login from another tab)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'refreshToken' && e.newValue) {
+        fetchUser();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also check periodically if user is logged in (every 5 minutes)
+    const interval = setInterval(() => {
+      if (!user) {
+        fetchUser();
+      }
+    }, 5 * 60 * 1000);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, [fetchUser, user]);
+
+  return (
+    <AuthContext.Provider value={{ user, loading, refresh: fetchUser, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthCtx);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
 }
-
 

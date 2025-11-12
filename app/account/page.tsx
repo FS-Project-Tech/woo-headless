@@ -1,37 +1,96 @@
-import { redirect } from 'next/navigation';
-import wcAPI from '@/lib/woocommerce';
-import { getAuthToken } from '@/lib/auth';
+"use client";
 
-export default async function AccountPage() {
-  const token = getAuthToken();
-  if (!token) redirect('/auth/login');
-  let user: any = null;
-  try {
-    const api = process.env.NEXT_PUBLIC_WC_API_URL || '';
-    const u = new URL(api);
-    const wpBase = `${u.protocol}//${u.host}`;
-    const res = await fetch(`${wpBase}/wp-json/wp/v2/users/me`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
-    if (res.ok) user = await res.json();
-  } catch {}
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/components/AuthProvider';
+import Link from 'next/link';
+
+export default function AccountPage() {
+  const { user, loading, logout } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/');
+    }
+  }, [user, loading, router]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
 
   return (
-    <div className="min-h-screen py-12">
-      <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
-        <h1 className="mb-4 text-2xl font-semibold text-gray-900">Dashboard</h1>
-        {user ? (
-          <div className="rounded-lg bg-white p-6">
-            <div className="text-gray-900">Welcome{user.name ? `, ${user.name}` : ''}!</div>
-            <div className="mt-2 text-sm text-gray-600">Email: {user.email || user.user_email || 'N/A'}</div>
-            <form action="/api/auth/logout" method="POST" className="mt-6">
-              <button className="rounded bg-gray-900 px-4 py-2 text-white hover:bg-black">Logout</button>
-            </form>
+    <div className="min-h-screen bg-gray-50 py-10">
+      <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+        <div className="bg-white shadow rounded-lg">
+          <div className="px-6 py-5 border-b border-gray-200">
+            <h1 className="text-2xl font-bold text-gray-900">My Account</h1>
           </div>
-        ) : (
-          <div className="rounded-lg bg-white p-6">Loading user…</div>
-        )}
+          
+          <div className="px-6 py-5">
+            <div className="space-y-6">
+              {/* User Info */}
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Account Information</h2>
+                <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-sm font-medium text-gray-500">Name</dt>
+                    <dd className="mt-1 text-sm text-gray-900">{user.name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-gray-500">Email</dt>
+                    <dd className="mt-1 text-sm text-gray-900">{user.email}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-gray-500">Username</dt>
+                    <dd className="mt-1 text-sm text-gray-900">{user.username}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-gray-500">Role</dt>
+                    <dd className="mt-1 text-sm text-gray-900">
+                      {user.roles.join(', ') || 'Customer'}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              {/* Quick Actions */}
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Link
+                    href="/shop"
+                    className="flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  >
+                    Continue Shopping
+                  </Link>
+                  <button
+                    onClick={async () => {
+                      await logout();
+                      router.push('/');
+                    }}
+                    className="flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-
 

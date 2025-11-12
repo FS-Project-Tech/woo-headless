@@ -17,7 +17,7 @@ async function CategoriesNavContent() {
 
     return (
         <nav className="border-b bg-white">
-            <div className="mx-auto w-full sm:w-[85vw] px-4 sm:px-6 lg:px-8">
+            <div className="mx-auto w-full sm:w-[85vw] px-4 sm:px-6 lg:px-8" suppressHydrationWarning>
                 <ul
                     className="flex items-center gap-2 sm:gap-3 py-2 sm:py-3 text-sm overflow-x-auto whitespace-nowrap md:flex-wrap md:overflow-visible"
                     aria-label="Category navigation"

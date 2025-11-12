@@ -23,10 +23,6 @@ export async function POST(req: Request) {
 
     // Process payment based on method
     switch (payment_method) {
-      case "stripe":
-      case "stripe_cc":
-        return await processStripePayment(body);
-      
       case "paypal":
         return await processPayPalPayment(body);
       
@@ -54,34 +50,6 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
-}
-
-/**
- * Process Stripe payment
- * This should integrate with Stripe Checkout or Stripe Elements
- * For now, this is a placeholder that should be replaced with actual Stripe integration
- */
-async function processStripePayment(data: any) {
-  // TODO: Implement actual Stripe payment processing
-  // This should:
-  // 1. Create Stripe Payment Intent
-  // 2. Handle 3D Secure if required
-  // 3. Confirm payment
-  // 4. Return payment intent ID and status
-  
-  // For now, return a mock response
-  // In production, integrate with Stripe SDK:
-  // const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-  // const paymentIntent = await stripe.paymentIntents.create({...});
-  
-  return NextResponse.json({
-    success: true,
-    payment_method: "stripe",
-    payment_intent_id: `pi_${Date.now()}`,
-    status: "succeeded",
-    requires_payment: true,
-    message: "Payment processed successfully",
-  });
 }
 
 /**

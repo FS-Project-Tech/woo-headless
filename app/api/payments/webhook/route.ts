@@ -12,7 +12,7 @@ import { addPaymentStatusNote, addStatusUpdateNote } from "@/lib/order-notes";
 export async function POST(req: Request) {
   try {
     const headersList = req.headers;
-    const signature = headersList.get("stripe-signature") || headersList.get("paypal-transmission-id") || headersList.get("x-paypal-transmission-sig");
+    const signature = headersList.get("paypal-transmission-id") || headersList.get("x-paypal-transmission-sig");
     
     // Get raw body for signature verification
     const body = await req.text();
@@ -30,13 +30,6 @@ export async function POST(req: Request) {
     const eventType = payload.type || payload.event_type;
     
     switch (eventType) {
-      // Stripe webhooks
-      case "payment_intent.succeeded":
-        return await handleStripePaymentSuccess(payload);
-      
-      case "payment_intent.payment_failed":
-        return await handleStripePaymentFailed(payload);
-      
       // PayPal webhooks
       case "PAYMENT.CAPTURE.COMPLETED":
         return await handlePayPalPaymentSuccess(payload);
@@ -63,9 +56,7 @@ export async function POST(req: Request) {
  */
 function verifyWebhookSignature(payload: any, signature: string | null, headers: Headers): boolean {
   // TODO: Implement actual signature verification
-  // Stripe: Use stripe.webhooks.constructEvent()
-  //   const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-  //   const event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET);
+  // Payment gateway webhook verification would go here
   // PayPal: Verify X-PAYPAL-TRANSMISSION-SIG header using PayPal SDK
   
   // For development/testing, you might want to skip verification
@@ -88,9 +79,9 @@ function verifyWebhookSignature(payload: any, signature: string | null, headers:
 }
 
 /**
- * Handle successful Stripe payment
+ * Handle successful payment (placeholder for future payment gateway integration)
  */
-async function handleStripePaymentSuccess(payload: any) {
+async function handlePaymentSuccess(payload: any) {
   try {
     const paymentIntent = payload.data.object;
     const orderId = paymentIntent.metadata?.order_id;
@@ -118,25 +109,25 @@ async function handleStripePaymentSuccess(payload: any) {
         },
         {
           key: "_payment_method_title",
-          value: "Credit Card (Stripe)",
+          value: "Online Payment",
         },
       ],
     });
 
     // Add only payment status note (order status change is handled by WooCommerce)
-    await addPaymentStatusNote(orderId, "Credit Card (Stripe)", paymentIntent.id, "success");
+    await addPaymentStatusNote(orderId, "Online Payment", paymentIntent.id, "success");
 
     return NextResponse.json({ received: true, order_id: orderId });
   } catch (error: any) {
-    console.error("Error handling Stripe payment success:", error);
+    console.error("Error handling payment success:", error);
     return NextResponse.json({ received: true, error: error.message });
   }
 }
 
 /**
- * Handle failed Stripe payment
+ * Handle failed payment (placeholder for future payment gateway integration)
  */
-async function handleStripePaymentFailed(payload: any) {
+async function handlePaymentFailed(payload: any) {
   try {
     const paymentIntent = payload.data.object;
     const orderId = paymentIntent.metadata?.order_id;
@@ -153,7 +144,7 @@ async function handleStripePaymentFailed(payload: any) {
         });
 
         // Add only payment status note
-        await addPaymentStatusNote(orderId, "Credit Card (Stripe)", paymentIntent.id, "failed");
+        await addPaymentStatusNote(orderId, "Online Payment", paymentIntent.id, "failed");
       } catch (error) {
         console.error("Error updating failed order:", error);
       }
@@ -161,7 +152,7 @@ async function handleStripePaymentFailed(payload: any) {
 
     return NextResponse.json({ received: true });
   } catch (error: any) {
-    console.error("Error handling Stripe payment failure:", error);
+    console.error("Error handling payment failure:", error);
     return NextResponse.json({ received: true });
   }
 }

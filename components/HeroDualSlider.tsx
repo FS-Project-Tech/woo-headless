@@ -29,10 +29,10 @@ export default function HeroDualSlider({
 	];
 
 	return (
-		<div className="hidden md:block mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
-			<div className="grid gap-4 md:grid-cols-4">
+		<div className="hidden md:block mx-auto w-[85vw] px-4 sm:px-6 lg:px-8" suppressHydrationWarning>
+			<div className="grid gap-4 md:grid-cols-4" suppressHydrationWarning>
 				{/* Left slider - 75% (3/4) */}
-				<div className="md:col-span-3">
+				<div className="md:col-span-3" suppressHydrationWarning>
 					<Swiper
 						modules={[Navigation, Pagination, Autoplay]}
 						navigation={{ enabled: true }}
@@ -51,7 +51,7 @@ export default function HeroDualSlider({
 				</div>
 
 				{/* Right slider - 25% (1/4) */}
-				<div className="md:col-span-1">
+				<div className="md:col-span-1" suppressHydrationWarning>
 					<Swiper
 						modules={[Navigation, Pagination, Autoplay]}
 						navigation={{ enabled: true }}

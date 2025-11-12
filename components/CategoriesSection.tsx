@@ -5,6 +5,7 @@ import { Swiper, SwiperSlide } from "swiper/react";
 import { Navigation } from "swiper/modules";
 import Link from "next/link";
 import Image from "next/image";
+import { motion } from "framer-motion";
 import wcAPI from "@/lib/woocommerce";
 
 type Category = {
@@ -62,11 +63,12 @@ export default function CategoriesSection() {
   // During SSR/first client paint, render a static placeholder
   if (!mounted) {
     return (
-      <section className="mb-10">
+      <section className="mb-16 py-8">
         <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
-          <div className="mb-4">
-            <h2 className="text-2xl font-bold text-gray-900">Shop by Category</h2>
-            <p className="text-sm text-gray-600 mt-1">Browse our complete product range</p>
+          <div className="mb-8 text-left">
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">Shop by Category</h2>
+            <p className="text-gray-600">Browse our complete product range</p>
+            <div className="mt-4 w-20 h-1 bg-gradient-to-r from-teal-500 to-blue-500 rounded-full"></div>
           </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
             {categories.slice(0, 6).map((category) => {
@@ -79,26 +81,21 @@ export default function CategoriesSection() {
                   href={`/product-category/${category.slug}`}
                   className="group flex flex-col h-full"
                 >
-                  <div className="flex flex-col h-full bg-white shadow-sm hover:shadow-md rounded-xl overflow-hidden">
-                    <div className="relative w-full h-32 shrink-0 flex items-center justify-center bg-gray-50">
+                  <div className="flex flex-col h-full bg-white border-2 border-gray-100 hover:border-teal-300 shadow-sm hover:shadow-xl rounded-2xl overflow-hidden transition-all duration-300">
+                    <div className="relative w-full h-40 shrink-0 flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-6">
+                      <div className="absolute inset-0 bg-gradient-to-br from-teal-50/0 to-blue-50/0 group-hover:from-teal-50/50 group-hover:to-blue-50/50 transition-all duration-300"></div>
                       <Image
                         src={categoryImage}
                         alt={category.name}
                         width={120}
                         height={120}
-                        className="object-contain max-h-full max-w-full"
+                        className="object-contain relative z-10 max-h-full max-w-full group-hover:scale-110 transition-transform duration-300"
                       />
                     </div>
-                    <div className="p-4 flex-1 flex flex-col justify-start min-h-[80px]">
-                      <h3 className="text-gray-900 font-normal text-sm text-center leading-tight">
+                    <div className="p-5 flex-1 flex flex-col justify-center bg-white">
+                      <h3 className="text-gray-900 font-semibold text-sm text-center leading-tight group-hover:text-teal-600 transition-colors">
                         {category.name}
                       </h3>
-                      {/* Product Count - Commented out for now */}
-                      {/* {category.count > 0 && (
-                        <p className="text-gray-600 text-sm mt-2">
-                          {category.count} product{category.count !== 1 ? "s" : ""}
-                        </p>
-                      )} */}
                     </div>
                   </div>
                 </Link>
@@ -113,23 +110,25 @@ export default function CategoriesSection() {
   // On mobile: render grid, no swiper
   if (mounted && isMobile) {
     return (
-      <section className="mb-10">
+      <section className="mb-16 py-8">
         <div className="mx-auto w-full sm:w-[85vw] px-4 sm:px-6 lg:px-8">
-          <div className="mb-4">
-            <h2 className="text-2xl font-bold text-gray-900">Shop by Category</h2>
-            <p className="text-sm text-gray-600 mt-1">Browse our complete product range</p>
+          <div className="mb-6 text-left">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Shop by Category</h2>
+            <p className="text-sm text-gray-600">Browse our complete product range</p>
+            <div className="mt-3 w-16 h-1 bg-gradient-to-r from-teal-500 to-blue-500 rounded-full"></div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             {categories.map((category) => {
               const categoryImage = category.image || `https://picsum.photos/200/200?random=${category.id}`;
               return (
                 <Link key={category.id} href={`/product-category/${category.slug}`} className="group flex flex-col h-full">
-                  <div className="flex flex-col h-full bg-white shadow-sm hover:shadow-md rounded-xl overflow-hidden">
-                    <div className="relative w-full aspect-square shrink-0 flex items-center justify-center bg-gray-50">
-                      <Image src={categoryImage} alt={category.name} width={120} height={120} className="object-contain max-h-full max-w-full" />
+                  <div className="flex flex-col h-full bg-white border border-gray-200 hover:border-teal-400 shadow-sm hover:shadow-lg rounded-xl overflow-hidden transition-all duration-300">
+                    <div className="relative w-full aspect-square shrink-0 flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-3">
+                      <div className="absolute inset-0 bg-gradient-to-br from-teal-50/0 to-blue-50/0 group-hover:from-teal-50/50 group-hover:to-blue-50/50 transition-all duration-300"></div>
+                      <Image src={categoryImage} alt={category.name} width={100} height={100} className="object-contain relative z-10 max-h-full max-w-full group-hover:scale-110 transition-transform duration-300" />
                     </div>
-                    <div className="p-2">
-                      <h3 className="text-center text-xs text-gray-900 leading-tight">{category.name}</h3>
+                    <div className="p-2 bg-white">
+                      <h3 className="text-center text-xs font-medium text-gray-900 leading-tight group-hover:text-teal-600 transition-colors">{category.name}</h3>
                     </div>
                   </div>
                 </Link>
@@ -142,12 +141,16 @@ export default function CategoriesSection() {
   }
 
   return (
-    <section className="mb-10">
+    <section className="mb-16 py-8">
       <div className="mx-auto w-full sm:w-[85vw] px-4 sm:px-6 lg:px-8">
-        <div className="mb-4">
-          <h2 className="text-2xl font-bold text-gray-900">Shop by Category</h2>
-          <p className="text-sm text-gray-600 mt-1">Browse our complete product range</p>
+        {/* Header Section - New Design */}
+        <div className="mb-8 text-left">
+          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">Shop by Category</h2>
+          <p className="text-gray-600 text-lg">Browse our complete product range</p>
+          <div className="mt-4 w-24 h-1 bg-gradient-to-r from-teal-500 to-blue-500 rounded-full"></div>
         </div>
+
+        {/* Swiper Container - Keep all swiper settings as is */}
         <div className="relative -mx-4 w-screen sm:mx-0 sm:w-auto">
           <Swiper
             modules={[Navigation]}
@@ -173,30 +176,43 @@ export default function CategoriesSection() {
                     className="group flex flex-col h-full"
                     style={{ height: "100%" }}
                   >
-                    <div className="flex flex-col h-full bg-white shadow-sm hover:shadow-md rounded-xl overflow-hidden">
-                      {/* Image - smaller size without crop */}
-                      <div className="relative w-full h-32 shrink-0 flex items-center justify-center bg-gray-50">
+                    <motion.div
+                      className="flex flex-col h-full bg-white border-2 border-gray-100 hover:border-teal-300 shadow-md hover:shadow-2xl rounded-2xl overflow-hidden transition-all duration-300"
+                      whileHover={{ scale: 1.03, y: -6 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      {/* Image Container - New Design */}
+                      <motion.div
+                        className="relative w-full h-40 shrink-0 flex items-center justify-center bg-gradient-to-br from-gray-50 via-gray-100 to-gray-50 p-6 overflow-hidden"
+                        whileHover={{ scale: 1.05 }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        {/* Gradient Overlay on Hover */}
+                        <div className="absolute inset-0 bg-gradient-to-br from-teal-50/0 via-blue-50/0 to-purple-50/0 group-hover:from-teal-50/60 group-hover:via-blue-50/60 group-hover:to-purple-50/60 transition-all duration-500"></div>
+                        
+                        {/* Decorative Circles */}
+                        <div className="absolute top-2 right-2 w-16 h-16 bg-teal-200/20 rounded-full blur-xl group-hover:bg-teal-300/30 transition-all duration-500"></div>
+                        <div className="absolute bottom-2 left-2 w-20 h-20 bg-blue-200/20 rounded-full blur-xl group-hover:bg-blue-300/30 transition-all duration-500"></div>
+                        
+                        {/* Image */}
                         <Image
                           src={categoryImage}
                           alt={category.name}
                           width={120}
                           height={120}
-                          className="object-contain transition-transform group-hover:scale-110 max-h-full max-w-full"
+                          className="object-contain relative z-10 transition-transform duration-500 group-hover:scale-125 max-h-full max-w-full"
                         />
-                      </div>
-                      {/* Name */}
-                      <div className="p-4 flex-1 flex flex-col justify-start min-h-[80px]">
-                        <h3 className="text-gray-900 font-normal text-sm text-center leading-tight">
+                      </motion.div>
+                      
+                      {/* Category Name - New Design */}
+                      <div className="p-5 flex-1 flex flex-col justify-center bg-white border-t border-gray-50">
+                        <h3 className="text-gray-900 font-semibold text-sm text-center leading-tight group-hover:text-teal-600 transition-colors duration-300">
                           {category.name}
                         </h3>
-                        {/* Product Count - Commented out for now */}
-                        {/* {category.count > 0 && (
-                          <p className="text-gray-600 text-sm mt-2">
-                            {category.count} product{category.count !== 1 ? "s" : ""}
-                          </p>
-                        )} */}
+                        {/* Optional: Add subtle underline on hover */}
+                        <div className="mt-2 h-0.5 w-0 group-hover:w-12 bg-gradient-to-r from-teal-500 to-blue-500 mx-auto transition-all duration-300 rounded-full"></div>
                       </div>
-                    </div>
+                    </motion.div>
                   </Link>
                 </SwiperSlide>
               );

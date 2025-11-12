@@ -1,12 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import wcAPI from "@/lib/woocommerce";
+import { getAuthToken, getWpBaseUrl } from "@/lib/auth";
 import { verifyPayment } from "@/lib/payment-verification";
 
 /**
  * Create order in WooCommerce
  * Follows WooCommerce's default order creation flow with secure payment handling
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const paymentMethod = body.payment_method || "";
@@ -19,7 +20,7 @@ export async function POST(req: Request) {
     const customerIp = forwarded?.split(",")[0]?.trim() || realIp || req.headers.get("cf-connecting-ip") || "Unknown";
     
     // Validate payment before creating order (for online payments)
-    if ((paymentMethod === "stripe" || paymentMethod === "stripe_cc" || paymentMethod === "paypal") && setPaid) {
+    if (paymentMethod === "paypal" && setPaid) {
       // Verify payment was processed before creating order
       if (!paymentIntentId) {
         return NextResponse.json(
@@ -52,10 +53,10 @@ export async function POST(req: Request) {
     // Determine order status based on payment method
     // For COD: Order status = "processing" (order being fulfilled), Payment status = "Pending Payment" (payment on delivery)
     // For Bank Transfer: Order status = "pending" (waiting for payment confirmation)
-    // For Stripe/PayPal (if paid): Order status = "processing" (order being fulfilled), Payment status = "Paid"
+    // For PayPal (if paid): Order status = "processing" (order being fulfilled), Payment status = "Paid"
     let orderStatus = "pending"; // Default to pending payment
     
-    if (setPaid && (paymentMethod === "stripe" || paymentMethod === "stripe_cc" || paymentMethod === "paypal")) {
+    if (setPaid && paymentMethod === "paypal") {
       // For successful online payments, set status to "processing"
       orderStatus = "processing";
     } else if (paymentMethod === "cod") {
@@ -120,6 +121,52 @@ export async function POST(req: Request) {
       });
     }
     
+    // Get customer ID if user is logged in
+    let customerId = null;
+    try {
+      const token = await getAuthToken();
+      if (token) {
+        const wpBase = getWpBaseUrl();
+        if (wpBase) {
+          // Get user data
+          const userResponse = await fetch(`${wpBase}/wp-json/wp/v2/users/me`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            cache: 'no-store',
+          });
+
+          if (userResponse.ok) {
+            const user = await userResponse.json();
+            const userEmail = user.email || body.billing?.email;
+            
+            // Get WooCommerce customer ID
+            try {
+              const customerResponse = await wcAPI.get('/customers', {
+                params: { email: userEmail },
+              });
+              
+              if (customerResponse.data && customerResponse.data.length > 0) {
+                customerId = customerResponse.data[0].id;
+              } else if (user.id) {
+                // Fallback to WordPress user ID if WooCommerce customer not found
+                customerId = user.id;
+              }
+            } catch (wcError) {
+              // If WooCommerce API fails, try using WordPress user ID
+              if (user.id) {
+                customerId = user.id;
+              }
+            }
+          }
+        }
+      }
+    } catch (authError) {
+      // If authentication fails, continue as guest order
+      console.warn('Could not get customer ID, creating guest order:', authError);
+    }
+    
     // Create order in WooCommerce
     const orderData: any = {
       payment_method: paymentMethod,
@@ -127,6 +174,7 @@ export async function POST(req: Request) {
       set_paid: setPaid,
       status: orderStatus,
       customer_ip_address: customerIp, // WooCommerce built-in customer IP field
+      ...(customerId && { customer_id: customerId }), // Add customer_id if user is logged in
       billing: body.billing || {},
       shipping: body.shipping || {},
       line_items: body.line_items || [],

@@ -1,8 +1,24 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import ProductGrid from "@/components/ProductGrid";
+import FilterSidebar from "@/components/FilterSidebar";
+
+// Loading skeleton for ProductGrid
+function ProductGridSkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      {Array.from({ length: 12 }).map((_, i) => (
+        <div key={i} className="animate-pulse">
+          <div className="bg-gray-200 aspect-square rounded-lg mb-3"></div>
+          <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function CategoryPageClient({ 
   initialSlug,
@@ -57,15 +73,27 @@ export default function CategoryPageClient({
   }, [slugFromPath, initialSlug, categorySlug, initialCategoryName, isMounted]);
 
   return (
-    <div className="min-h-screen py-12">
-      <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen py-12" suppressHydrationWarning>
+      <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8" suppressHydrationWarning>
         <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'Shop', href: '/shop' }, { label: categoryName }]} />
         
-        <div className="mb-6">
+        <div className="mb-6" suppressHydrationWarning>
           <h1 className="text-2xl font-semibold text-gray-900">{categoryName}</h1>
         </div>
         
-        <ProductGrid categorySlug={categorySlug || undefined} />
+        <div className="flex flex-col lg:flex-row gap-6" suppressHydrationWarning>
+          {/* Filter Sidebar */}
+          <aside className="lg:w-64 flex-shrink-0" suppressHydrationWarning>
+            <FilterSidebar categorySlug={categorySlug} />
+          </aside>
+          
+          {/* Product Grid - Wrapped in Suspense for useSearchParams */}
+          <div className="flex-1" suppressHydrationWarning>
+            <Suspense fallback={<ProductGridSkeleton />}>
+              <ProductGrid categorySlug={categorySlug || undefined} />
+            </Suspense>
+          </div>
+        </div>
       </div>
     </div>
   );

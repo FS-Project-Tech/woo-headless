@@ -79,18 +79,19 @@ export default function MarketingUpdatesSection() {
 
   return (
     <section className="mb-10">
-      <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
-        <div className="mb-4">
+      <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8" suppressHydrationWarning>
+        <div className="mb-4" suppressHydrationWarning>
           <h2 className="text-2xl font-bold text-gray-900">Marketing & Updates</h2>
           <p className="text-sm text-gray-600 mt-1">Stay informed about our latest news and special offers</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" suppressHydrationWarning>
           {updates.map((update) => (
             <div
               key={update.id}
               className={`rounded-xl border-2 p-6 transition-all hover:shadow-lg ${getTypeStyles(update.type)}`}
+              suppressHydrationWarning
             >
-              <div className="flex items-start justify-between mb-3">
+              <div className="flex items-start justify-between mb-3" suppressHydrationWarning>
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/80">
                   {getTypeBadge(update.type)}
                 </span>

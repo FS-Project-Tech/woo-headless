@@ -30,12 +30,6 @@ const TABS = [
       <path d="M1 1h4l2.68 12.39a2 2 0 0 0 2 1.61h7.72a2 2 0 0 0 2-1.61L23 6H6" />
     </>
   ) },
-  { key: "account", label: "Account", href: "/auth/login", icon: (
-    <>
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </>
-  ) },
 ];
 
 export default function BottomNav() {
@@ -55,13 +49,13 @@ export default function BottomNav() {
   }, [lastY]);
 
   return (
-    <nav className={`fixed bottom-0 left-0 right-0 z-50 block md:hidden`} aria-label="Bottom navigation">
-      <div className={`mx-auto w-full bg-white/95 backdrop-blur border-t border-gray-200 transition-transform duration-200 ${visible ? "translate-y-0" : "translate-y-full"}`}>
-        <ul className="grid grid-cols-5">
+    <nav className={`fixed bottom-0 left-0 right-0 z-50 block md:hidden`} aria-label="Bottom navigation" suppressHydrationWarning>
+      <div className={`mx-auto w-full bg-white/95 backdrop-blur border-t border-gray-200 transition-transform duration-200 ${visible ? "translate-y-0" : "translate-y-full"}`} suppressHydrationWarning>
+        <ul className="grid grid-cols-4" suppressHydrationWarning>
           {TABS.map((tab) => {
             const active = tab.href !== "#" && pathname === tab.href;
             const content = (
-              <div className={`flex flex-col items-center justify-center py-2 ${active ? "text-teal-700" : "text-gray-700"}`}>
+              <div className={`flex flex-col items-center justify-center py-2 ${active ? "text-teal-700" : "text-gray-700"}`} suppressHydrationWarning>
                 <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   {tab.icon}
                 </svg>
@@ -71,12 +65,12 @@ export default function BottomNav() {
 
             if (tab.key === "cart") {
               return (
-                <li key={tab.key} className="relative">
+                <li key={tab.key} className="relative" suppressHydrationWarning>
                   <button type="button" onClick={() => open()} className="w-full">
                     {content}
                   </button>
                   {items.length > 0 && (
-                    <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-3 ml-4 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                    <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-3 ml-4 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white" suppressHydrationWarning>
                       {items.length > 99 ? "99+" : items.length}
                     </span>
                   )}
@@ -85,7 +79,7 @@ export default function BottomNav() {
             }
 
             return (
-              <li key={tab.key}>
+              <li key={tab.key} suppressHydrationWarning>
                 <Link href={tab.href} className="block w-full">
                   {content}
                 </Link>

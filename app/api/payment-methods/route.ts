@@ -18,8 +18,6 @@ export async function GET() {
       { id: 'cheque', title: 'Check Payments', description: 'Please send a check to Store Name, Store Street, Store Town, Store State / County, Store Postcode.' },
       { id: 'cod', title: 'Cash on Delivery', description: 'Pay with cash upon delivery.' },
       { id: 'paypal', title: 'PayPal', description: 'Pay via PayPal; you can pay with your credit card if you don\'t have a PayPal account.' },
-      { id: 'stripe', title: 'Credit Card (Stripe)', description: 'Pay with your credit card via Stripe.' },
-      { id: 'stripe_cc', title: 'Credit Card (Stripe)', description: 'Pay with your credit card via Stripe.' },
     ];
 
     // Method 1: Try to fetch via WooCommerce REST API using wcAPI client
@@ -153,7 +151,6 @@ export async function GET() {
         { id: 'bacs', title: 'Direct Bank Transfer', description: 'Make your payment directly into our bank account.', enabled: true },
         { id: 'cod', title: 'Cash on Delivery', description: 'Pay with cash upon delivery.', enabled: true },
         { id: 'paypal', title: 'PayPal', description: 'Pay via PayPal.', enabled: true },
-        { id: 'stripe', title: 'Credit Card (Stripe)', description: 'Pay with your credit card via Stripe.', enabled: true },
       ]
     });
   }
