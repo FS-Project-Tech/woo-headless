@@ -6,7 +6,7 @@
 export interface SearchIndexItem {
   key: string; // Composite key: `${type}_${id}`
   id: number;
-  type: 'product' | 'category' | 'brand';
+  type: 'product' | 'category' | 'brand' | 'tag';
   name: string;
   slug: string;
   sku?: string;
@@ -306,6 +306,24 @@ class SearchIndexManager {
         }
       }
       
+      // Tags
+      if (Array.isArray(data.tags)) {
+        for (const t of data.tags) {
+          const searchableText = [t.name || '', t.slug || ''].join(' ').toLowerCase();
+          const tokens = this.tokenize(searchableText);
+          
+          items.push({
+            key: `tag_${t.id}`,
+            id: t.id,
+            type: 'tag',
+            name: t.name,
+            slug: t.slug,
+            searchableText,
+            tokens,
+          });
+        }
+      }
+      
       this.index = items;
       await this.saveToIndexedDB(items);
       this.initialized = true;
@@ -350,7 +368,18 @@ class SearchIndexManager {
     const qLower = query.toLowerCase().trim();
     if (qLower.length < 1) return [];
     
-    // Detect if query looks like a SKU (alphanumeric with possible dashes/underscores)
+    // Parse multiple SKUs from query (comma, space, or newline separated)
+    const parseMultipleSKUs = (q: string): string[] => {
+      // Split by comma, newline, or multiple spaces
+      const skus = q
+        .split(/[,\n\r]+|\s{2,}/)
+        .map(s => s.trim())
+        .filter(s => s.length >= 2 && /^[A-Z0-9_-]+$/i.test(s));
+      return skus.length > 0 ? skus : [];
+    };
+    
+    const multipleSKUs = parseMultipleSKUs(query);
+    const isMultipleSKUSearch = multipleSKUs.length > 1;
     const isSKULikeQuery = /^[A-Z0-9_-]+$/i.test(query) && query.length >= 2;
     
     const qTokens = this.tokenize(qLower);
@@ -359,8 +388,26 @@ class SearchIndexManager {
     const scored = this.index.map(item => {
       let score = 0;
       
-      // For SKU-like queries, prioritize direct SKU matching first
-      if (isSKULikeQuery && item.sku) {
+      // Handle multiple SKU search
+      if (isMultipleSKUSearch && item.sku) {
+        const itemSKULower = (item.sku || '').toLowerCase();
+        for (const sku of multipleSKUs) {
+          const skuLower = sku.toLowerCase();
+          if (itemSKULower === skuLower) {
+            score = 2000; // Exact match - highest priority
+            break;
+          } else if (itemSKULower.includes(skuLower) || skuLower.includes(itemSKULower)) {
+            score = Math.max(score, 1500); // Partial match
+          }
+        }
+        // If we got a good SKU match, return it
+        if (score >= 1500) {
+          return { item, score };
+        }
+      }
+      
+      // For single SKU-like queries, prioritize direct SKU matching first
+      if (isSKULikeQuery && !isMultipleSKUSearch && item.sku) {
         score = this.calculateDirectMatchScore(qLower, item);
         // If we got a good SKU match, return it immediately (don't need token matching)
         if (score >= 800) {
@@ -388,11 +435,52 @@ class SearchIndexManager {
     });
     
     // Filter items with score > 0 and sort by score
-    return scored
+    const results = scored
       .filter(x => x.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
       .map(x => x.item);
+    
+    // For multiple SKU search, prioritize exact matches and ensure we get results for each SKU
+    if (isMultipleSKUSearch) {
+      const exactMatches: SearchIndexItem[] = [];
+      const partialMatches: SearchIndexItem[] = [];
+      const otherMatches: SearchIndexItem[] = [];
+      
+      for (const item of results) {
+        if (!item.sku) {
+          otherMatches.push(item);
+          continue;
+        }
+        
+        const itemSKULower = item.sku.toLowerCase();
+        let isExact = false;
+        let isPartial = false;
+        
+        for (const sku of multipleSKUs) {
+          const skuLower = sku.toLowerCase();
+          if (itemSKULower === skuLower) {
+            isExact = true;
+            break;
+          } else if (itemSKULower.includes(skuLower) || skuLower.includes(itemSKULower)) {
+            isPartial = true;
+          }
+        }
+        
+        if (isExact) {
+          exactMatches.push(item);
+        } else if (isPartial) {
+          partialMatches.push(item);
+        } else {
+          otherMatches.push(item);
+        }
+      }
+      
+      // Return exact matches first, then partial, then others
+      return [...exactMatches, ...partialMatches, ...otherMatches].slice(0, limit);
+    }
+    
+    return results;
   }
 
   private calculateDirectMatchScore(query: string, item: SearchIndexItem): number {
@@ -536,10 +624,11 @@ class SearchIndexManager {
     
     score += tokenScore;
     
-    // Type-based weighting (Products > Categories > Brands)
+    // Type-based weighting (Products > Categories > Brands > Tags)
     if (item.type === 'product') score += 5;
     else if (item.type === 'category') score += 2;
     else if (item.type === 'brand') score += 1;
+    else if (item.type === 'tag') score += 1;
     
     // Fuzzy character matching (handles typos like "FMS Syrin" → "FMS Syringe")
     score += this.fuzzyMatch(query, nameLower) * 30;

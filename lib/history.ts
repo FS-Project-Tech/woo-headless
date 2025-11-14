@@ -9,7 +9,7 @@ export function addSearchTerm(term: string) {
     const t = term.trim();
     if (!t) return;
     const raw = window.localStorage.getItem(SEARCH_KEY);
-    const list: string[] = Array.isArray(raw ? JSON.parse(raw) : null) ? JSON.parse(raw) : [];
+    const list: string[] = raw ? (Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : []) : [];
     const next = [t, ...list.filter((x) => x.toLowerCase() !== t.toLowerCase())].slice(0, MAX_TERMS);
     window.localStorage.setItem(SEARCH_KEY, JSON.stringify(next));
   } catch {}

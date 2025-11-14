@@ -1,5 +1,5 @@
 /**
- * Access Token System for Cart and Checkout Pages
+ * Access Token System for Cart Pages
  * Prevents direct URL access - users must go through proper flow
  */
 
@@ -9,7 +9,7 @@ const TOKEN_STORAGE_KEY = "access_token";
 interface TokenData {
   token: string;
   expiresAt: number;
-  type: "cart" | "checkout";
+  type: "cart";
 }
 
 /**
@@ -29,9 +29,9 @@ function generateToken(): string {
 }
 
 /**
- * Generate an access token for cart or checkout
+ * Generate an access token for cart
  */
-export function generateAccessToken(type: "cart" | "checkout"): string {
+export function generateAccessToken(type: "cart"): string {
   if (typeof window === "undefined") return "";
   
   const token = generateToken();
@@ -55,7 +55,7 @@ export function generateAccessToken(type: "cart" | "checkout"): string {
 /**
  * Validate an access token
  */
-export function validateAccessToken(token: string | null, requiredType: "cart" | "checkout"): boolean {
+export function validateAccessToken(token: string | null, requiredType: "cart"): boolean {
   if (typeof window === "undefined") return false;
   if (!token) return false;
   
@@ -119,14 +119,6 @@ export function clearAccessToken(): void {
   } catch (e) {
     console.error("Failed to clear access token:", e);
   }
-}
-
-/**
- * Generate checkout URL with token
- */
-export function getCheckoutUrl(): string {
-  const token = generateAccessToken("checkout");
-  return `/checkout?token=${token}`;
 }
 
 /**
