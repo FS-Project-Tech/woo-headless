@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import bundleAnalyzer from '@next/bundle-analyzer';
 
 // Optionally include a domain from the WooCommerce API URL if provided
 const wcApiUrl = process.env.NEXT_PUBLIC_WC_API_URL;
@@ -10,8 +11,15 @@ try {
   }
 } catch {}
 
+const withBundleAnalyzer = bundleAnalyzer({
+  enabled: process.env.ANALYZE === 'true',
+});
+
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  
+  // Enable compression (gzip + Brotli)
+  compress: true,
   
   // Turbopack configuration (Next.js 16 uses Turbopack by default)
   turbopack: {},
@@ -19,7 +27,15 @@ const nextConfig: NextConfig = {
   // Enable experimental features for better performance
   experimental: {
     // Optimize package imports - reduces bundle size and compile time
-    optimizePackageImports: ['framer-motion', 'axios', 'swiper'],
+    optimizePackageImports: [
+      'framer-motion',
+      'axios',
+      'swiper',
+      '@tanstack/react-query',
+      'react-hook-form',
+      'lucide-react',
+      'zustand',
+    ],
     // Enable faster refresh for better HMR experience
     // optimizeCss: true, // Uncomment if using CSS optimization
     // Turbopack persistent caching (available in Next.js 15.1+)
@@ -101,6 +117,7 @@ const nextConfig: NextConfig = {
       {
         protocol: "https",
         hostname: "wordpress-1496507-5718895.cloudwaysapps.com",
+        pathname: "/wp-content/uploads/**",
       },
       // Placeholder image host used in development/demo sliders
       {
@@ -119,9 +136,22 @@ const nextConfig: NextConfig = {
             {
               protocol: "https",
               hostname: wcHost,
+              pathname: "/wp-content/uploads/**",
             },
           ] as const)
         : ([] as const)),
+      // Allow any WordPress/WooCommerce site (for flexibility)
+      // Remove or restrict in production if needed
+      ...(process.env.NODE_ENV === 'development' ? [
+        {
+          protocol: "https" as const,
+          hostname: "**.wordpress.com",
+        },
+        {
+          protocol: "https" as const,
+          hostname: "**.wp.com",
+        },
+      ] : []),
     ],
     // Optimize images for better performance
     formats: ['image/avif', 'image/webp'],
@@ -139,4 +169,4 @@ const nextConfig: NextConfig = {
   output: 'standalone',
 };
 
-export default nextConfig;
+export default withBundleAnalyzer(nextConfig);

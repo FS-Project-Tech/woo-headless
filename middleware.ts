@@ -1,13 +1,64 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { apiMiddleware } from './middleware-api';
 
 /**
  * Middleware for protected routes and auto-redirects
  * - Protects /dashboard routes
+ * - Protects /api/* routes with JWT authentication
  * - Auto-redirects: /login → if authenticated, /dashboard → if not authenticated
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  
+  // Apply API middleware for /api/* routes
+  if (pathname.startsWith('/api/')) {
+    const apiResponse = await apiMiddleware(request);
+    if (apiResponse) {
+      return apiResponse; // Auth failed, return error
+    }
+  }
+  
+  const response = NextResponse.next();
+  
+  // Add caching headers for static assets and API routes
+  if (pathname.startsWith('/_next/static') || pathname.startsWith('/_next/image')) {
+    // Static assets - cache for 1 year
+    response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+  } else if (pathname.startsWith('/api/products') || pathname.startsWith('/api/category-by-slug')) {
+    // API routes - cache for 5 minutes with stale-while-revalidate
+    response.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    response.headers.set('Content-Type', 'application/json; charset=utf-8');
+  } else if (pathname.startsWith('/api/')) {
+    // Other API routes - shorter cache
+    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+    response.headers.set('Content-Type', 'application/json; charset=utf-8');
+  } else if (pathname.match(/\.(jpg|jpeg|png|gif|ico|svg|webp|avif)$/)) {
+    // Images - cache for 1 year
+    response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+  } else if (pathname.match(/\.(js|css|woff|woff2|ttf|eot)$/)) {
+    // JS/CSS/Fonts - cache for 1 year
+    response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+  } else if (pathname.startsWith('/products/') || pathname.startsWith('/product-category/')) {
+    // Product and category pages - ISR with revalidation
+    response.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+  }
+  
+  // Security headers
+  response.headers.set('X-DNS-Prefetch-Control', 'on');
+  response.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  // Compression headers (Next.js handles compression automatically with compress: true)
+  // But we can hint to browsers about available compression
+  const acceptEncoding = request.headers.get('accept-encoding') || '';
+  if (acceptEncoding.includes('br')) {
+    response.headers.set('Vary', 'Accept-Encoding');
+  }
   
   // Get JWT token from cookie
   const token = request.cookies.get('session')?.value;
@@ -38,7 +89,7 @@ export async function middleware(request: NextRequest) {
       }
     }
     // Not authenticated, allow access to login/register pages
-    return NextResponse.next();
+    return response;
   }
   
   // Protected routes that require authentication
@@ -55,7 +106,7 @@ export async function middleware(request: NextRequest) {
   );
   
   if (!isProtectedRoute) {
-    return NextResponse.next();
+    return response;
   }
   
   // No token, redirect to login
@@ -89,7 +140,7 @@ export async function middleware(request: NextRequest) {
     }
     
     // Token is valid, allow request
-    return NextResponse.next();
+    return response;
   } catch (error) {
     console.error('Middleware auth error:', error);
     // On error, redirect to login for security
@@ -108,6 +159,12 @@ export const config = {
     '/login',
     '/register',
     '/forgot',
+    '/api/:path*',
+    '/products/:path*',
+    '/product-category/:path*',
+    '/_next/static/:path*',
+    '/_next/image/:path*',
+    '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
 
