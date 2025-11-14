@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { syncCartToWooCommerce, validateCartItems } from "@/lib/cart-sync";
-import type { CartItem } from "@/components/CartProvider";
+import type { CartItem } from "@/lib/types/cart";
 
 /**
  * POST /api/cart/sync

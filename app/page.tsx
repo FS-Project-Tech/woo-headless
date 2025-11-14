@@ -1,7 +1,33 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import HeroDualSlider from "@/components/HeroDualSlider";
+import dynamic from "next/dynamic";
+import type { Metadata } from "next";
 import { fetchHeroSliders } from "@/lib/cms";
+import { WebsiteStructuredData, OrganizationStructuredData } from "@/components/StructuredData";
+
+// SEO Metadata for homepage
+export const metadata: Metadata = {
+  title: "Home",
+  description: "Shop the latest products at our WooCommerce store. Fast, secure checkout with free shipping on orders over $50.",
+  openGraph: {
+    title: "WooCommerce Store - Shop Latest Products",
+    description: "Shop the latest products at our WooCommerce store. Fast, secure checkout with free shipping.",
+    type: "website",
+  },
+  alternates: {
+    canonical: "/",
+  },
+};
+
+// Dynamically import HeroDualSlider - heavy component with Swiper
+const HeroDualSlider = dynamic(() => import("@/components/HeroDualSlider"), {
+  loading: () => <div className="h-64 md:h-80 lg:h-96 animate-pulse bg-gray-100 rounded-xl" />,
+  ssr: true, // Keep SSR for SEO
+});
+
+// Import ProductsPageClientWrapper - client component wrapper that handles dynamic import
+import ProductsPageClientWrapper from "@/components/ProductsPageClientWrapper";
+
 import ProductSection from "@/components/ProductSection";
 import RecommendedSection from "@/components/RecommendedSection";
 import CategoriesSection from "@/components/CategoriesSection";
@@ -10,49 +36,96 @@ import NDISCTASection from "@/components/NDISCTASection";
 import RecentlyViewedSection from "@/components/RecentlyViewedSection";
 import TrendingSection from "@/components/TrendingSection";
 import NewsletterSection from "@/components/NewsletterSection";
+import MedicalBackgroundPattern from "@/components/MedicalBackgroundPattern";
+import AnimatedSection from "@/components/AnimatedSection";
+import HomePageClient from "@/components/HomePageClient";
 
 export const revalidate = 300; // Revalidate every 5 minutes (reduced frequency)
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ Search?: string; search?: string }>;
+}) {
   // Don't block initial render - fetch sliders in parallel with other data
   const slidersPromise = fetchHeroSliders().catch(() => ({ left: [], right: [] }));
   const continenceSlug = process.env.NEXT_PUBLIC_CONTINENCE_CATEGORY_SLUG || "continence-care";
   
   // Resolve sliders but don't block
   const sliders = await slidersPromise;
+  
+  const params = await searchParams;
+  const searchQuery = params?.Search || params?.search;
+
+  // If search query exists, show search results page
+  if (searchQuery) {
+    return <ProductsPageClientWrapper />;
+  }
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com';
 
   return (
-    <div className="min-h-screen">
+    <>
+      {/* Structured Data for SEO */}
+      <WebsiteStructuredData 
+        siteUrl={siteUrl}
+        potentialAction={{
+          "@type": "SearchAction",
+          target: `${siteUrl}/?search={search_term_string}`,
+          "query-input": "required name=search_term_string",
+        }}
+      />
+      <OrganizationStructuredData siteUrl={siteUrl} />
+      
+      <HomePageClient sliders={sliders} continenceSlug={continenceSlug}>
+      <div className="min-h-screen relative" suppressHydrationWarning>
+      {/* Medical Background Pattern */}
+      <MedicalBackgroundPattern />
+      
       {/* Header dual sliders */}
-      <div className="py-4">
-        <HeroDualSlider leftImages={sliders.left} rightImages={sliders.right} />
-      </div>
+      <AnimatedSection>
+        <div className="py-4">
+          <HeroDualSlider leftImages={sliders.left} rightImages={sliders.right} />
+        </div>
+      </AnimatedSection>
 
       {/* Personalized recommendations */}
-      <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded" />}>
-        <RecommendedSection />
-      </Suspense>
+      <AnimatedSection>
+        <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded" />}>
+          <RecommendedSection />
+        </Suspense>
+      </AnimatedSection>
 
       {/* Categories Section */}
-      <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded mb-10" />}>
-        <CategoriesSection />
-      </Suspense>
+      <AnimatedSection>
+        <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded mb-10" />}>
+          <CategoriesSection />
+        </Suspense>
+      </AnimatedSection>
 
       {/* Recently viewed */}
-      <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded" />}>
-        <RecentlyViewedSection />
-      </Suspense>
+      <AnimatedSection>
+        <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded" />}>
+          <RecentlyViewedSection />
+        </Suspense>
+      </AnimatedSection>
 
       {/* Trending */}
-      <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded" />}>
-        <TrendingSection />
-      </Suspense>
+      <AnimatedSection>
+        <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded" />}>
+          <TrendingSection />
+        </Suspense>
+      </AnimatedSection>
 
       {/* Marketing & Updates Section */}
-      <MarketingUpdatesSection />
+      <AnimatedSection>
+        <MarketingUpdatesSection />
+      </AnimatedSection>
 
       {/* NDIS CTA Section */}
-      <NDISCTASection />
+      <AnimatedSection>
+        <NDISCTASection />
+      </AnimatedSection>
 
       {/* Sections */}
       <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded" />}>
@@ -115,7 +188,11 @@ export default async function Home() {
       </Suspense>
 
       {/* Newsletter */}
-      <NewsletterSection />
+      <AnimatedSection>
+        <NewsletterSection />
+      </AnimatedSection>
     </div>
+    </HomePageClient>
+    </>
   );
 }

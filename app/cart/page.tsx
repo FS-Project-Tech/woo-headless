@@ -1,21 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCart } from "@/components/CartProvider";
-import { useCheckout } from "@/components/CheckoutProvider";
 import Image from "next/image";
-import { validateAccessToken, getStoredToken, getCheckoutUrl } from "@/lib/access-token";
+import { validateAccessToken, getStoredToken, getCartUrl } from "@/lib/access-token";
 import Link from "next/link";
+import ShippingOptions from "@/components/ShippingOptions";
+import { useShippingAddress } from "@/hooks/useShippingAddress";
+import { calculateSubtotal, calculateGST, calculateTotal } from "@/lib/cart-utils";
+import { formatPrice } from "@/lib/format-utils";
+import { getDeliveryFrequencyLabel } from "@/lib/delivery-utils";
 
-export default function CartPage() {
+function CartPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { items, updateItemQty, removeItem } = useCart();
-  const { coupon, discount, setCoupon, setDiscount } = useCheckout();
+  const [coupon, setCoupon] = useState<string>("");
+  const [discount, setDiscount] = useState<number>(0);
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
   const [isMounted, setIsMounted] = useState<boolean>(false);
-  const [shippingCost] = useState<number>(0);
+  const [shippingCost, setShippingCost] = useState<number>(0);
+  const { country: shippingCountry, zone: shippingZone } = useShippingAddress();
 
   // Ensure component is mounted before accessing browser APIs
   useEffect(() => {
@@ -46,17 +52,14 @@ export default function CartPage() {
     setIsAuthorized(true);
   }, [isMounted, searchParams, router, items.length]);
 
-  const subtotal = useMemo(() => {
-    return items.reduce((s: number, i: any) => s + Number(i.price || 0) * i.qty, 0);
-  }, [items]);
+  const subtotal = useMemo(() => calculateSubtotal(items), [items]);
 
   const gst = useMemo(() => {
-    const base = Math.max(0, subtotal - discount) + shippingCost;
-    return Number((base * 0.1).toFixed(2));
+    return calculateGST(subtotal, shippingCost, discount);
   }, [subtotal, discount, shippingCost]);
 
   const total = useMemo(() => {
-    return Number((Math.max(0, subtotal - discount) + shippingCost + gst).toFixed(2));
+    return calculateTotal(subtotal, shippingCost, discount, gst);
   }, [subtotal, discount, shippingCost, gst]);
 
   const applyCoupon = () => {
@@ -67,14 +70,6 @@ export default function CartPage() {
     } else {
       setDiscount(0);
     }
-  };
-
-  const getDeliveryFrequencyLabel = (plan?: string) => {
-    if (!plan || plan === "none") return "One-time";
-    if (plan === "7") return "Every 7 days";
-    if (plan === "14") return "Every 14 days";
-    if (plan === "30") return "Every month";
-    return "One-time";
   };
 
   // Show loading if not mounted or not authorized
@@ -154,8 +149,8 @@ export default function CartPage() {
                               />
                             </div>
                             <div className="text-right">
-                              <div className="font-semibold text-gray-900">${(Number(i.price || 0) * i.qty).toFixed(2)}</div>
-                              <div className="text-xs text-gray-500">${Number(i.price || 0).toFixed(2)} each</div>
+                              <div className="font-semibold text-gray-900">{formatPrice(Number(i.price || 0) * i.qty)}</div>
+                              <div className="text-xs text-gray-500">{formatPrice(i.price)} each</div>
                             </div>
                           </div>
                           <button 
@@ -200,37 +195,49 @@ export default function CartPage() {
                 )}
               </div>
 
+              {/* Shipping Options */}
+              <div className="mb-4 border-b pb-4">
+                <ShippingOptions
+                  country={shippingCountry}
+                  zone={shippingZone}
+                  subtotal={subtotal}
+                  items={items}
+                  onRateChange={(rateId, rate) => setShippingCost(rate.cost)}
+                  showLabel={true}
+                />
+              </div>
+
               {/* Totals Section */}
               <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Subtotal</span>
-                  <span className="font-medium">${subtotal.toFixed(2)}</span>
+                  <span className="font-medium">{formatPrice(subtotal)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Shipping</span>
-                  <span className="font-medium">${shippingCost.toFixed(2)}</span>
+                  <span className="font-medium">{formatPrice(shippingCost)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">GST (10%)</span>
-                  <span className="font-medium">${gst.toFixed(2)}</span>
+                  <span className="font-medium">{formatPrice(gst)}</span>
                 </div>
                 {discount > 0 && (
                   <div className="flex items-center justify-between text-green-600">
                     <span>Discount</span>
-                    <span>−${discount.toFixed(2)}</span>
+                    <span>−{formatPrice(discount)}</span>
                   </div>
                 )}
                 <div className="mt-4 border-t pt-3">
                   <div className="flex items-center justify-between text-base">
                     <span className="font-semibold">Total</span>
-                    <span className="font-bold text-lg">${total.toFixed(2)}</span>
+                    <span className="font-bold text-lg">{formatPrice(total)}</span>
                   </div>
                 </div>
               </div>
 
-              {isMounted && (
+              {isMounted && items.length > 0 && (
                 <Link 
-                  href={getCheckoutUrl()}
+                  href="/checkout"
                   className="mt-6 block w-full rounded-md bg-gray-900 px-4 py-3 text-center text-sm font-medium text-white hover:bg-black"
                 >
                   Proceed to Checkout
@@ -241,6 +248,21 @@ export default function CartPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function CartPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 py-10 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <CartPageContent />
+    </Suspense>
   );
 }
 

@@ -1,20 +1,11 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { calculateSubtotal } from "@/lib/cart-utils";
+import type { CartItem } from "@/lib/types/cart";
 
-export interface CartItem {
-	id: string; // productId or productId:variationId
-	productId: number;
-	variationId?: number;
-	name: string;
-	slug: string;
-	imageUrl?: string;
-	price: string; // display price string
-	qty: number;
-	sku?: string | null;
-    attributes?: { [name: string]: string };
-    deliveryPlan?: "none" | "7" | "14" | "30";
-}
+// Re-export CartItem for backward compatibility
+export type { CartItem };
 
 interface CartState {
 	items: CartItem[];
@@ -173,7 +164,7 @@ export default function CartProvider({ children }: { children: React.ReactNode }
 	}, [items]);
 
 	const total = useMemo(() => {
-		const sum = items.reduce((acc, it) => acc + parseFloat(it.price || "0") * it.qty, 0);
+		const sum = calculateSubtotal(items);
 		return sum.toFixed(2);
 	}, [items]);
 

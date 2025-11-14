@@ -1,346 +1,477 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { validateAccessToken, getStoredToken } from "@/lib/access-token";
 import Link from "next/link";
 import Image from "next/image";
 
-export default function OrderReviewPage() {
+interface OrderItem {
+  id: number;
+  name: string;
+  quantity: number;
+  price: string;
+  sku?: string;
+  image?: { src: string; alt: string };
+}
+
+interface Order {
+  id: number;
+  order_key: string;
+  status: string;
+  total: string;
+  subtotal?: string;
+  shipping_total?: string;
+  tax_total?: string;
+  discount_total?: string;
+  payment_method: string;
+  payment_method_title: string;
+  date_created?: string;
+  billing: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone: string;
+    address_1: string;
+    address_2?: string;
+    city: string;
+    state: string;
+    postcode: string;
+    country: string;
+  };
+  shipping: {
+    first_name: string;
+    last_name: string;
+    address_1: string;
+    address_2?: string;
+    city: string;
+    state: string;
+    postcode: string;
+    country: string;
+  };
+  line_items: OrderItem[];
+  meta_data?: Array<{ key: string; value: any }>;
+}
+
+function OrderReviewContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
-  const [isMounted, setIsMounted] = useState<boolean>(false);
-  const [orderData, setOrderData] = useState<any>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [orderId, setOrderId] = useState<string | null>(null);
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [downloadingPDF, setDownloadingPDF] = useState(false);
+  const orderId = searchParams.get("orderId");
 
-  // Ensure component is mounted before accessing browser APIs
   useEffect(() => {
-    setIsMounted(true);
-    // Get orderId after mount to avoid hydration mismatch
-    const id = searchParams.get("orderId");
-    setOrderId(id);
-  }, [searchParams]);
-
-  // Validate access token on mount (only after client mount)
-  useEffect(() => {
-    if (!isMounted || typeof window === "undefined") return;
-    
-    console.log("Order review page - orderId:", orderId);
-    console.log("Order review page - searchParams:", Object.fromEntries(searchParams.entries()));
-    
-    // Check orderId first - if present, we allow access
     if (!orderId) {
-      // No orderId - redirect to shop
-      console.warn("No orderId found, redirecting to shop");
-      router.push("/shop");
+      setError("Order ID is required");
+      setLoading(false);
       return;
     }
-    
-    // If we have orderId, authorize immediately (orderId is proof of successful order)
-    console.log("OrderId present, authorizing access");
-    setIsAuthorized(true);
-    
-    // Token validation is optional - we don't block if token is missing/invalid when orderId exists
-    const token = searchParams.get("token");
-    if (token) {
-      // Validate token if present, but don't block if invalid
-      const isValid = validateAccessToken(token, "checkout");
-      if (!isValid) {
-        console.warn("Token invalid but orderId present - allowing access");
-      } else {
-        console.log("Token validated successfully");
-      }
-    } else {
-      console.log("No token in URL, but orderId present - allowing access");
-    }
-  }, [isMounted, searchParams, router, orderId]);
 
-  // Fetch order data
-  useEffect(() => {
-    if (!isAuthorized || !orderId) return;
-    
-    setLoading(true);
-    (async () => {
+    const fetchOrder = async () => {
       try {
-        const res = await fetch(`/api/orders/${orderId}`, { cache: 'no-store' });
-        if (res.ok) {
-          const data = await res.json();
-          setOrderData(data);
-        } else {
-          console.error("Failed to fetch order:", res.status, res.statusText);
-          // If order not found, still show the page with orderId
-          setOrderData({ id: orderId });
+        const res = await fetch(`/api/orders/${orderId}`, { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error("Failed to fetch order");
         }
-      } catch (error) {
-        console.error("Error fetching order:", error);
-        // Even if fetch fails, show the page with orderId
-        setOrderData({ id: orderId });
+        const data = await res.json();
+        setOrder(data.order);
+      } catch (err: any) {
+        setError(err.message || "Failed to load order");
       } finally {
         setLoading(false);
       }
-    })();
-  }, [isAuthorized, orderId]);
+    };
 
-  if (!isMounted || !isAuthorized) {
-    return (
-      <div className="min-h-screen bg-gray-50 py-10 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-gray-600 mb-2">Redirecting...</div>
-        </div>
-      </div>
-    );
-  }
+    fetchOrder();
+  }, [orderId]);
+
+  const handleDownloadPDF = useCallback(async () => {
+    if (!order || typeof window === "undefined") return;
+
+    setDownloadingPDF(true);
+    try {
+      // Dynamically import html2pdf.js
+      const html2pdfModule = await import("html2pdf.js");
+      const html2pdf = html2pdfModule.default || html2pdfModule;
+
+      const element = document.getElementById("invoice-content");
+      if (!element) {
+        throw new Error("Invoice content not found");
+      }
+
+      const opt = {
+        margin: [15, 15, 15, 15] as [number, number, number, number],
+        filename: `Invoice-${order.id}.pdf`,
+        image: { type: "jpeg" as const, quality: 0.98 },
+        html2canvas: { 
+          scale: 2, 
+          useCORS: true,
+          logging: false,
+          letterRendering: true,
+        },
+        jsPDF: { 
+          unit: "mm", 
+          format: "a4", 
+          orientation: "portrait" as const 
+        },
+      };
+
+      await html2pdf().set(opt).from(element).save();
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      // Fallback to print dialog
+      window.print();
+    } finally {
+      setDownloadingPDF(false);
+    }
+  }, [order]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 py-10 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-gray-600 mb-2">Loading order details...</div>
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent"></div>
+          <p className="mt-4 text-gray-600">Loading order details...</p>
         </div>
       </div>
     );
   }
 
-  // If no orderData but we have orderId, show basic confirmation
-  const displayOrderId = orderData?.id || orderId;
+  if (error || !order) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-10">
+        <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
+          <div className="text-center py-20">
+            <h1 className="text-2xl font-semibold mb-4">Order Not Found</h1>
+            <p className="text-gray-600 mb-6">{error || "The order you're looking for doesn't exist."}</p>
+            <Link
+              href="/shop"
+              className="inline-block rounded-md bg-gray-900 px-6 py-3 text-white hover:bg-black"
+            >
+              Continue Shopping
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const getNDISNumber = () => {
+    const ndisMeta = order.meta_data?.find((m) => m.key === "NDIS Number");
+    return ndisMeta?.value || null;
+  };
+
+  const getHCPNumber = () => {
+    const hcpMeta = order.meta_data?.find((m) => m.key === "HCP Number");
+    return hcpMeta?.value || null;
+  };
+
+  const getDeliveryAuthority = () => {
+    const authMeta = order.meta_data?.find((m) => m.key === "Delivery Authority");
+    return authMeta?.value || null;
+  };
+
+  const getDeliveryInstructions = () => {
+    const instructionsMeta = order.meta_data?.find((m) => m.key === "Delivery Instructions");
+    return instructionsMeta?.value || null;
+  };
+
+  const isPaid = order.status === "processing" || order.status === "completed";
+  const offlinePaymentMethods = ["cod", "bacs", "bank_transfer", "cheque"];
+  
+  // Calculate totals
+  const subtotal = order.subtotal ? parseFloat(order.subtotal) : parseFloat(order.total);
+  const shipping = order.shipping_total ? parseFloat(order.shipping_total) : 0;
+  const tax = order.tax_total ? parseFloat(order.tax_total) : 0;
+  const discount = order.discount_total ? parseFloat(order.discount_total) : 0;
+  const total = parseFloat(order.total);
   
   // Format date
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "N/A";
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
+  const orderDate = order.date_created 
+    ? new Date(order.date_created).toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      })
+    : new Date().toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
       });
-    } catch {
-      return dateString;
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-10">
-      <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
         {/* Success Header */}
-        <div className="rounded-xl border bg-white p-8 mb-6 text-center">
+        <div className="mb-6 text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
             <svg className="h-8 w-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-2xl font-semibold text-gray-900">Thank you for your order!</h2>
-          <p className="mt-2 text-gray-600">Your order <span className="font-semibold">#{displayOrderId}</span> has been placed successfully.</p>
-          {orderData?.date_created && (
-            <p className="mt-1 text-sm text-gray-500">Order placed on {formatDate(orderData.date_created)}</p>
-          )}
+          <h1 className="mb-2 text-3xl font-bold text-gray-900">Order Confirmed!</h1>
+          <p className="text-gray-600">
+            Thank you for your order. We've sent a confirmation email to <strong>{order.billing.email}</strong>
+          </p>
         </div>
 
-        {/* Order Details Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Order Items (2/3 width on large screens) */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Order Items */}
-            <div className="rounded-xl border bg-white p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Items</h3>
-              {orderData?.line_items && orderData.line_items.length > 0 ? (
-                <div className="space-y-4">
-                  {orderData.line_items.map((item: any, index: number) => (
-                    <div key={item.id || index} className="flex gap-4 pb-4 border-b border-gray-200 last:border-0 last:pb-0">
-                      {item.image && (
-                        <div className="relative h-20 w-20 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200">
-                          <Image
-                            src={item.image.src || item.image}
-                            alt={item.name || "Product"}
-                            fill
-                            sizes="80px"
-                            className="object-cover"
-                          />
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium text-gray-900">{item.name}</h4>
-                        {item.sku && (
-                          <p className="text-sm text-gray-500 mt-1">SKU: {item.sku}</p>
-                        )}
-                        {item.variation && item.variation.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {item.variation.map((variation: any, vIdx: number) => (
-                              <span key={vIdx} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
-                                {variation.attribute}: {variation.value}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <div className="mt-2 flex items-center justify-between">
-                          <span className="text-sm text-gray-600">Quantity: {item.quantity}</span>
-                          <span className="font-semibold text-gray-900">${item.total}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-500 text-sm">No items found in this order.</p>
-              )}
-            </div>
-
-            {/* Order Notes */}
-            {orderData?.customer_note && (
-              <div className="rounded-xl border bg-white p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Order Notes</h3>
-                <p className="text-gray-600 text-sm whitespace-pre-wrap">{orderData.customer_note}</p>
+        {/* Invoice Container */}
+        <div id="invoice-content" className="bg-white shadow-lg rounded-lg overflow-hidden">
+          {/* Invoice Header */}
+          <div className="bg-gradient-to-r from-gray-900 to-gray-800 px-8 py-6 text-white">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold mb-1">Order Summary</h2>
+                <p className="text-gray-300 text-sm">Order #{order.id}</p>
               </div>
-            )}
+              <div className="mt-4 md:mt-0 text-right">
+                <p className="text-sm text-gray-300">Date</p>
+                <p className="font-semibold">{orderDate}</p>
+              </div>
+            </div>
           </div>
 
-          {/* Right Column - Order Summary (1/3 width on large screens) */}
-          <div className="space-y-6">
-            {/* Order Information */}
-            <div className="rounded-xl border bg-white p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Information</h3>
-              <div className="space-y-3 text-sm">
-                <div>
-                  <span className="text-gray-600">Order Number:</span>
-                  <p className="font-medium text-gray-900 mt-1">#{displayOrderId}</p>
+          {/* Invoice Body */}
+          <div className="p-8">
+            {/* Company & Customer Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 pb-8 border-b">
+              {/* Company Info */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">From</h3>
+                <div className="text-sm text-gray-700">
+                  <p className="font-bold text-lg text-gray-900 mb-1">
+                    {process.env.NEXT_PUBLIC_SITE_NAME || "Joya Medical Supplies"}
+                  </p>
+                  <p className="text-gray-600">Medical Supplies & Healthcare Products</p>
+                  <p className="text-gray-600 mt-2">Australia</p>
                 </div>
-                {orderData?.status && (
-                  <div>
-                    <span className="text-gray-600">Status:</span>
-                    <p className="font-medium text-gray-900 mt-1 capitalize">{orderData.status.replace(/-/g, " ")}</p>
-                  </div>
-                )}
-                {orderData?.date_created && (
-                  <div>
-                    <span className="text-gray-600">Date:</span>
-                    <p className="font-medium text-gray-900 mt-1">{formatDate(orderData.date_created)}</p>
-                  </div>
-                )}
-                {orderData?.payment_method_title && (
-                  <div>
-                    <span className="text-gray-600">Payment Method:</span>
-                    <p className="font-medium text-gray-900 mt-1">{orderData.payment_method_title}</p>
-                  </div>
-                )}
-                {orderData?.transaction_id && (
-                  <div>
-                    <span className="text-gray-600">Transaction ID:</span>
-                    <p className="font-medium text-gray-900 mt-1 font-mono text-xs">{orderData.transaction_id}</p>
-                  </div>
-                )}
+              </div>
+
+              {/* Customer Info */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Bill To</h3>
+                <div className="text-sm text-gray-700">
+                  <p className="font-semibold text-gray-900">
+                    {order.billing.first_name} {order.billing.last_name}
+                  </p>
+                  <p>{order.billing.address_1}</p>
+                  {order.billing.address_2 && <p>{order.billing.address_2}</p>}
+                  <p>
+                    {order.billing.city}, {order.billing.state} {order.billing.postcode}
+                  </p>
+                  <p>{order.billing.country}</p>
+                  <p className="mt-2">Phone: {order.billing.phone}</p>
+                  <p>Email: {order.billing.email}</p>
+                </div>
               </div>
             </div>
 
-            {/* Billing Address */}
-            {orderData?.billing && (
-              <div className="rounded-xl border bg-white p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Billing Address</h3>
-                <div className="text-sm text-gray-600 space-y-1">
-                  <p className="font-medium text-gray-900">{orderData.billing.first_name} {orderData.billing.last_name}</p>
-                  {orderData.billing.company && <p>{orderData.billing.company}</p>}
-                  <p>{orderData.billing.address_1}</p>
-                  {orderData.billing.address_2 && <p>{orderData.billing.address_2}</p>}
-                  <p>
-                    {orderData.billing.city}, {orderData.billing.state} {orderData.billing.postcode}
+            {/* Shipping Address (if different) */}
+            {order.shipping && 
+             (order.shipping.address_1 !== order.billing.address_1 || 
+              order.shipping.city !== order.billing.city) && (
+              <div className="mb-8 pb-8 border-b">
+                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Ship To</h3>
+                <div className="text-sm text-gray-700">
+                  <p className="font-semibold text-gray-900">
+                    {order.shipping.first_name} {order.shipping.last_name}
                   </p>
-                  <p>{orderData.billing.country}</p>
-                  {orderData.billing.email && (
-                    <p className="mt-2 pt-2 border-t border-gray-200">
-                      <span className="font-medium text-gray-700">Email:</span> {orderData.billing.email}
-                    </p>
-                  )}
-                  {orderData.billing.phone && (
-                    <p>
-                      <span className="font-medium text-gray-700">Phone:</span> {orderData.billing.phone}
-                    </p>
-                  )}
+                  <p>{order.shipping.address_1}</p>
+                  {order.shipping.address_2 && <p>{order.shipping.address_2}</p>}
+                  <p>
+                    {order.shipping.city}, {order.shipping.state} {order.shipping.postcode}
+                  </p>
+                  <p>{order.shipping.country}</p>
                 </div>
               </div>
             )}
 
-            {/* Shipping Address */}
-            {orderData?.shipping && orderData.shipping.address_1 && (
-              <div className="rounded-xl border bg-white p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Shipping Address</h3>
-                <div className="text-sm text-gray-600 space-y-1">
-                  <p className="font-medium text-gray-900">{orderData.shipping.first_name} {orderData.shipping.last_name}</p>
-                  {orderData.shipping.company && <p>{orderData.shipping.company}</p>}
-                  <p>{orderData.shipping.address_1}</p>
-                  {orderData.shipping.address_2 && <p>{orderData.shipping.address_2}</p>}
-                  <p>
-                    {orderData.shipping.city}, {orderData.shipping.state} {orderData.shipping.postcode}
-                  </p>
-                  <p>{orderData.shipping.country}</p>
-                </div>
-              </div>
-            )}
+            {/* Order Items Table */}
+            <div className="mb-8">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b-2 border-gray-200">
+                    <th className="text-left py-3 px-4 text-sm font-semibold text-gray-900 uppercase tracking-wide">Item</th>
+                    <th className="text-center py-3 px-4 text-sm font-semibold text-gray-900 uppercase tracking-wide">SKU</th>
+                    <th className="text-right py-3 px-4 text-sm font-semibold text-gray-900 uppercase tracking-wide">Quantity</th>
+                    <th className="text-right py-3 px-4 text-sm font-semibold text-gray-900 uppercase tracking-wide">Price</th>
+                    <th className="text-right py-3 px-4 text-sm font-semibold text-gray-900 uppercase tracking-wide">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {order.line_items.map((item, index) => {
+                    const itemPrice = Number(item.price);
+                    const itemTotal = itemPrice * item.quantity;
+                    return (
+                      <tr key={item.id} className={`border-b ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            {item.image?.src && (
+                              <div className="hidden print:block relative h-12 w-12 shrink-0 overflow-hidden rounded border border-gray-200">
+                                <Image
+                                  src={item.image.src}
+                                  alt={item.image.alt || item.name}
+                                  fill
+                                  sizes="48px"
+                                  className="object-cover"
+                                />
+                              </div>
+                            )}
+                            <div>
+                              <p className="font-medium text-gray-900">{item.name}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4 text-center text-sm text-gray-600">
+                          {item.sku || "—"}
+                        </td>
+                        <td className="py-4 px-4 text-right text-sm text-gray-900">
+                          {item.quantity}
+                        </td>
+                        <td className="py-4 px-4 text-right text-sm text-gray-900">
+                          ${itemPrice.toFixed(2)}
+                        </td>
+                        <td className="py-4 px-4 text-right font-semibold text-gray-900">
+                          ${itemTotal.toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
-            {/* Order Totals */}
-            <div className="rounded-xl border bg-white p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Totals</h3>
-              <div className="space-y-2 text-sm">
-                {orderData?.total && (
-                  <>
-                    {orderData.subtotal && (
-                      <div className="flex justify-between text-gray-600">
-                        <span>Subtotal:</span>
-                        <span>${orderData.subtotal}</span>
-                      </div>
-                    )}
-                    {orderData.discount_total && parseFloat(orderData.discount_total) > 0 && (
-                      <div className="flex justify-between text-gray-600">
-                        <span>Discount:</span>
-                        <span className="text-green-600">-${orderData.discount_total}</span>
-                      </div>
-                    )}
-                    {orderData.shipping_total && parseFloat(orderData.shipping_total) > 0 && (
-                      <div className="flex justify-between text-gray-600">
-                        <span>Shipping:</span>
-                        <span>${orderData.shipping_total}</span>
-                      </div>
-                    )}
-                    {orderData.total_tax && parseFloat(orderData.total_tax) > 0 && (
-                      <div className="flex justify-between text-gray-600">
-                        <span>Tax:</span>
-                        <span>${orderData.total_tax}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between pt-2 border-t border-gray-200 font-semibold text-gray-900">
-                      <span>Total:</span>
-                      <span>${orderData.total}</span>
+            {/* Totals Section */}
+            <div className="flex justify-end mb-8">
+              <div className="w-full md:w-80">
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between py-2">
+                    <span className="text-gray-600">Subtotal:</span>
+                    <span className="font-medium text-gray-900">${subtotal.toFixed(2)}</span>
+                  </div>
+                  {shipping > 0 && (
+                    <div className="flex justify-between py-2">
+                      <span className="text-gray-600">Shipping:</span>
+                      <span className="font-medium text-gray-900">${shipping.toFixed(2)}</span>
                     </div>
-                  </>
+                  )}
+                  {tax > 0 && (
+                    <div className="flex justify-between py-2">
+                      <span className="text-gray-600">Tax:</span>
+                      <span className="font-medium text-gray-900">${tax.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {discount > 0 && (
+                    <div className="flex justify-between py-2 text-emerald-600">
+                      <span>Discount:</span>
+                      <span className="font-medium">-${discount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="border-t-2 border-gray-900 pt-3 mt-2">
+                    <div className="flex justify-between">
+                      <span className="text-lg font-bold text-gray-900">Total:</span>
+                      <span className="text-xl font-bold text-gray-900">${total.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment & Status Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 pb-8 border-b">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-2">Payment Method</h3>
+                <p className="text-sm text-gray-700">{order.payment_method_title}</p>
+                {!isPaid && offlinePaymentMethods.includes(order.payment_method) && (
+                  <p className="text-xs text-yellow-600 mt-1">Payment Pending</p>
                 )}
               </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-2">Order Status</h3>
+                <p className={`text-sm font-medium ${
+                  order.status === "completed" ? "text-green-600" :
+                  order.status === "processing" ? "text-blue-600" :
+                  "text-yellow-600"
+                }`}>
+                  {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                </p>
+              </div>
+            </div>
+
+            {/* Additional Information */}
+            {(getNDISNumber() || getHCPNumber() || getDeliveryAuthority() || getDeliveryInstructions()) && (
+              <div className="mb-8 pb-8 border-b">
+                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Additional Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  {getNDISNumber() && (
+                    <div>
+                      <span className="font-medium text-gray-700">NDIS Number:</span>{" "}
+                      <span className="text-gray-900">{getNDISNumber()}</span>
+                    </div>
+                  )}
+                  {getHCPNumber() && (
+                    <div>
+                      <span className="font-medium text-gray-700">HCP Number:</span>{" "}
+                      <span className="text-gray-900">{getHCPNumber()}</span>
+                    </div>
+                  )}
+                  {getDeliveryAuthority() && (
+                    <div>
+                      <span className="font-medium text-gray-700">Delivery Authority:</span>{" "}
+                      <span className="text-gray-900">{getDeliveryAuthority()}</span>
+                    </div>
+                  )}
+                  {getDeliveryInstructions() && (
+                    <div className="md:col-span-2">
+                      <span className="font-medium text-gray-700">Delivery Instructions:</span>{" "}
+                      <span className="text-gray-900">{getDeliveryInstructions()}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Footer Note */}
+            <div className="text-center text-xs text-gray-500 pt-4 border-t">
+              <p>Thank you for your business!</p>
+              <p className="mt-1">If you have any questions about this invoice, please contact us.</p>
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-          <Link 
-            href="/shop" 
-            className="inline-block rounded-lg bg-gray-900 px-6 py-3 text-sm font-medium text-white hover:bg-black transition-colors text-center"
+        <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
+          <button
+            onClick={handleDownloadPDF}
+            disabled={downloadingPDF}
+            className="inline-flex items-center justify-center gap-2 rounded-md border-2 border-gray-300 bg-white px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Continue Shopping
-          </Link>
-          {orderId && (
-            <Link 
-              href={`/my-account/orders/${orderId}`}
-              className="inline-block rounded-lg border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors text-center"
-            >
-              View Order in Account
-            </Link>
-          )}
-          <Link 
-            href="/" 
-            className="inline-block rounded-lg border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors text-center"
+            {downloadingPDF ? (
+              <>
+                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Generating PDF...</span>
+              </>
+            ) : (
+              <>
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Download PDF</span>
+              </>
+            )}
+          </button>
+          <Link
+            href="/shop"
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-gray-900 px-6 py-3 text-sm font-semibold text-white hover:bg-black transition-colors"
           >
-            Back to Home
+            <span>Continue Shopping</span>
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
           </Link>
         </div>
       </div>
@@ -348,3 +479,19 @@ export default function OrderReviewPage() {
   );
 }
 
+export default function OrderReviewPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 py-10 flex items-center justify-center">
+          <div className="text-center">
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent"></div>
+            <p className="mt-4 text-gray-600">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <OrderReviewContent />
+    </Suspense>
+  );
+}

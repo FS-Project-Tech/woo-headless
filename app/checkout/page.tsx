@@ -1,408 +1,375 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, Suspense, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useForm, Controller } from "react-hook-form";
+import { yupResolver } from "@hookform/resolvers/yup";
+import * as yup from "yup";
 import { useCart } from "@/components/CartProvider";
-import { useAuth } from "@/components/AuthProvider";
-import { useCheckout } from "@/components/CheckoutProvider";
 import Image from "next/image";
-import { validateAccessToken, getStoredToken, getCartUrl } from "@/lib/access-token";
 import Link from "next/link";
+import { useToast } from "@/components/ToastProvider";
+import { getCartUrl } from "@/lib/access-token";
+import { useAddresses } from "@/hooks/useAddresses";
+import { useAuth } from "@/components/AuthProvider";
+import { useCoupon } from "@/components/CouponProvider";
+import CouponInput from "@/components/CouponInput";
+import ShippingOptions from "@/components/ShippingOptions";
+import { parseCartTotal, calculateGST, calculateTotal } from "@/lib/cart-utils";
+import { formatPrice } from "@/lib/format-utils";
 
-interface FormErrors {
-  billing?: {
-    first_name?: string;
-    last_name?: string;
-    email?: string;
-    phone?: string;
-    address_1?: string;
-    city?: string;
-    postcode?: string;
-    country?: string;
-    state?: string;
-  };
-  shipping?: {
-    first_name?: string;
-    last_name?: string;
-    address_1?: string;
-    city?: string;
-    postcode?: string;
-    country?: string;
-    state?: string;
-  };
-}
+// Validation Schema
+const checkoutSchema = yup.object({
+  billing: yup.object({
+    first_name: yup.string().required("First name is required"),
+    last_name: yup.string().required("Last name is required"),
+    email: yup.string().email("Invalid email").required("Email is required"),
+    phone: yup.string().required("Phone is required"),
+    address_1: yup.string().required("Address is required"),
+    city: yup.string().required("City is required"),
+    postcode: yup.string().required("Postcode is required"),
+    country: yup.string().required("Country is required"),
+    state: yup.string().required("State is required"),
+    address_2: yup.string().optional(),
+  }),
+  shipping: yup.object({
+    first_name: yup.string().optional(),
+    last_name: yup.string().optional(),
+    address_1: yup.string().optional(),
+    address_2: yup.string().optional(),
+    city: yup.string().optional(),
+    postcode: yup.string().optional(),
+    country: yup.string().optional(),
+    state: yup.string().optional(),
+  }),
+  shippingMethod: yup.object().required("Please select a shipping method"),
+  paymentMethod: yup.string().required("Payment method is required"),
+  shipToDifferentAddress: yup.boolean().default(false),
+  deliveryAuthority: yup.string().default("with_signature"),
+  deliveryInstructions: yup.string().optional(),
+  ndis_number: yup.string().optional(),
+  hcp_number: yup.string().optional(),
+  subscribe_newsletter: yup.boolean().default(false),
+  termsAccepted: yup.boolean().oneOf([true], "You must accept the terms and conditions").required(),
+});
 
-export default function CheckoutPage() {
+type CheckoutFormData = yup.InferType<typeof checkoutSchema>;
+
+function CheckoutPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { items, updateItemQty, removeItem, clear } = useCart();
-  const { user } = useAuth();
-  const {
-    billing,
-    shipping,
-    shippingMethod,
-    coupon,
-    discount,
-    paymentMethod,
-    shipToDifferentAddress,
-    deliveryAuthority,
-    deliveryInstructions,
-    subscribeNewsletter,
-    orderId,
-    errors,
-    setBilling,
-    setShipping,
-    setShippingMethod,
-    setCoupon,
-    setDiscount,
-    setPaymentMethod,
-    setShipToDifferentAddress,
-    setDeliveryAuthority,
-    setDeliveryInstructions,
-    setSubscribeNewsletter,
-    setOrderId,
-    setErrors,
-    clearCheckout,
-  } = useCheckout();
+  const { items, clear, syncWithWooCommerce, total } = useCart();
+  const { success, error: showError } = useToast();
+  const { appliedCoupon, discount, calculateDiscount } = useCoupon();
 
-  const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
-  const [isMounted, setIsMounted] = useState<boolean>(false);
-  const [rates, setRates] = useState<any[]>([]);
+  const [isMounted, setIsMounted] = useState(false);
   const [placing, setPlacing] = useState(false);
-  const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<Array<{ id: string; title: string; description?: string; enabled: boolean }>>([]);
+  const [csrfToken, setCsrfToken] = useState<string>("");
+  const [enabledPaymentMethods, setEnabledPaymentMethods] = useState<
+    Array<{ id: string; title: string; description?: string; enabled: boolean }>
+  >([]);
+  const [selectedBillingAddress, setSelectedBillingAddress] = useState<string>("");
+  const [selectedShippingAddress, setSelectedShippingAddress] = useState<string>("");
+  
+  const { user } = useAuth();
+  const { addresses, isLoading: addressesLoading } = useAddresses();
+  
+  // Filter addresses by type
+  const billingAddresses = addresses.filter(a => a.type === 'billing');
+  const shippingAddresses = addresses.filter(a => a.type === 'shipping');
 
-  // Ensure component is mounted before accessing browser APIs
+  const {
+    control,
+    handleSubmit,
+    watch,
+    setValue,
+    formState: { errors },
+  } = useForm<CheckoutFormData>({
+    resolver: yupResolver(checkoutSchema),
+    defaultValues: {
+      billing: {
+        first_name: "",
+        last_name: "",
+        email: "",
+        phone: "",
+        address_1: "",
+        address_2: "",
+        city: "",
+        postcode: "",
+        country: "AU",
+        state: "",
+      },
+      shipping: {
+        first_name: "",
+        last_name: "",
+        address_1: "",
+        address_2: "",
+        city: "",
+        postcode: "",
+        country: "AU",
+        state: "",
+      },
+      shipToDifferentAddress: false,
+      deliveryAuthority: "with_signature",
+      deliveryInstructions: "",
+      ndis_number: "",
+      hcp_number: "",
+      subscribe_newsletter: false,
+      termsAccepted: false,
+    },
+  });
+
+  const watchedBilling = watch("billing");
+  const watchedShipping = watch("shipping");
+  const watchedShipToDifferent = watch("shipToDifferentAddress");
+  const watchedShippingMethod = watch("shippingMethod");
+  const watchedPaymentMethod = watch("paymentMethod");
+
+  // Extract stable values from watched objects
+  const billingCountry = watchedBilling?.country || "";
+  const billingPostcode = watchedBilling?.postcode || "";
+  const billingState = watchedBilling?.state || "";
+  const shippingCountry = watchedShipping?.country || "";
+  const shippingPostcode = watchedShipping?.postcode || "";
+  const shippingState = watchedShipping?.state || "";
+
   useEffect(() => {
     setIsMounted(true);
+    
+    // Generate CSRF token
+    if (typeof window !== "undefined") {
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      setCsrfToken(token);
+      document.cookie = `csrf-token=${token}; path=/; SameSite=Strict`;
+    }
   }, []);
 
-  const subtotal = useMemo(() => {
-    return items.reduce((s: number, i: any) => s + Number(i.price || 0) * i.qty, 0);
-  }, [items]);
+  // Calculate stable cart values for dependencies - use primitive values only
+  const cartSubtotal = useMemo(() => parseCartTotal(total), [total]);
+  const itemsCount = items.length;
+  // Create a stable string representation of items for API calls
+  // Use itemsCount as the main dependency to avoid array reference issues
+  const itemsString = useMemo(() => {
+    if (items.length === 0) return '[]';
+    return JSON.stringify(items);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsCount]);
 
-  const shippingCost = shippingMethod ? Number(shippingMethod.cost || 0) : 0;
-  const gst = useMemo(() => {
-    const base = Math.max(0, subtotal - discount) + shippingCost;
-    return Number((base * 0.1).toFixed(2));
-  }, [subtotal, discount, shippingCost]);
-
-  const total = useMemo(() => {
-    return Number((Math.max(0, subtotal - discount) + shippingCost + gst).toFixed(2));
-  }, [subtotal, discount, shippingCost, gst]);
-
-  // Validate access token on mount (only after client mount)
+  // Fetch payment methods
   useEffect(() => {
-    if (!isMounted || typeof window === "undefined") return;
-    
-    const token = searchParams.get("token") || getStoredToken();
-    
-    // Check if token is valid
-    if (!validateAccessToken(token, "checkout")) {
-      // Redirect to home page if no valid token
-      router.push("/");
-      return;
-    }
-    
-    // Check if cart has items
-    if (items.length === 0) {
-      // Redirect to shop if cart is empty
-      router.push("/shop");
-      return;
-    }
-    
-    // Authorized - allow access
-    setIsAuthorized(true);
-  }, [isMounted, searchParams, router, items.length]);
+    if (!isMounted) return;
 
-  // Fetch enabled payment methods and default country
-  useEffect(() => {
-    if (!isAuthorized) return;
-    
     (async () => {
       try {
-        const paymentRes = await fetch('/api/payment-methods', { cache: 'no-store' });
+        const paymentRes = await fetch("/api/payment-methods", { cache: "no-store" });
         const paymentData = await paymentRes.json();
         if (paymentData.paymentMethods && Array.isArray(paymentData.paymentMethods)) {
           setEnabledPaymentMethods(paymentData.paymentMethods.filter((m: any) => m.enabled));
+          if (paymentData.paymentMethods.length > 0 && !watchedPaymentMethod) {
+            setValue("paymentMethod", paymentData.paymentMethods[0].id);
+          }
         }
       } catch {
         setEnabledPaymentMethods([
-          { id: 'stripe', title: 'Credit Card (Stripe)', description: 'Pay with your credit card via Stripe.', enabled: true },
-          { id: 'paypal', title: 'PayPal', description: 'Pay via PayPal.', enabled: true },
-          { id: 'cod', title: 'Cash on Delivery', description: 'Pay with cash upon delivery.', enabled: true },
-          { id: 'bacs', title: 'Direct Bank Transfer', description: 'Make your payment directly into our bank account.', enabled: true },
+          { id: "cod", title: "Cash on Delivery", enabled: true },
+          { id: "bacs", title: "Direct Bank Transfer", enabled: true },
         ]);
-      }
-
-      try {
-        const res = await fetch('/api/store-settings', { cache: 'no-store' });
-        const data = await res.json();
-        const defaultCountry = data.defaultCountry || 'AU';
-        
-        if (!billing.country) {
-          setBilling((prev: any) => ({ ...prev, country: defaultCountry }));
-        }
-        if (!shipping.country) {
-          setShipping((prev: any) => ({ ...prev, country: defaultCountry }));
-        }
-      } catch {
-        if (!billing.country) {
-          setBilling((prev: any) => ({ ...prev, country: 'AU' }));
-        }
-        if (!shipping.country) {
-          setShipping((prev: any) => ({ ...prev, country: 'AU' }));
+        if (!watchedPaymentMethod) {
+          setValue("paymentMethod", "cod");
         }
       }
     })();
-  }, [isAuthorized, billing.country, shipping.country, setBilling, setShipping]);
+  }, [isMounted, watchedPaymentMethod, setValue]);
 
-  // Auto-fill shipping from billing when "same as billing" is checked
+  // Auto-fill shipping from billing
   useEffect(() => {
-    if (!shipToDifferentAddress && billing.first_name) {
-      setShipping({
-        first_name: billing.first_name,
-        last_name: billing.last_name,
-        address_1: billing.address_1,
-        city: billing.city,
-        postcode: billing.postcode,
-        country: billing.country,
-        state: billing.state,
+    if (!watchedShipToDifferent && watchedBilling.first_name) {
+      setValue("shipping", {
+        first_name: watchedBilling.first_name,
+        last_name: watchedBilling.last_name,
+        address_1: watchedBilling.address_1,
+        address_2: watchedBilling.address_2 || "",
+        city: watchedBilling.city,
+        postcode: watchedBilling.postcode,
+        country: watchedBilling.country,
+        state: watchedBilling.state,
       });
     }
-  }, [shipToDifferentAddress, billing, setShipping]);
+  }, [watchedShipToDifferent, watchedBilling, setValue]);
 
-  // Fetch shipping rates
+  // Recalculate discount when items or subtotal changes
   useEffect(() => {
-    if (!isAuthorized) return;
-    
-    (async () => {
-      try {
-        const params = new URLSearchParams();
-        if (shipping.country) {
-          params.set('country', shipping.country);
-          if (shipping.country === 'AU' || shipping.country === 'Australia') {
-            params.set('zone', 'Australia');
-          }
-        } else {
-          params.set('country', 'AU');
-          params.set('zone', 'Australia');
-        }
-        
-        const res = await fetch(`/api/shipping/rates?${params.toString()}`, { cache: 'no-store' });
-        const data = await res.json();
-        const rs = Array.isArray(data.rates) ? data.rates : [];
-        setRates(rs);
-        if (rs.length > 0 && !shippingMethod) {
-          setShippingMethod(rs[0]);
-        }
-      } catch {
-        setRates([]);
-      }
-    })();
-  }, [shipping.country, shipping.postcode, shipping.state, isAuthorized, shippingMethod, setShippingMethod]);
-
-  const validateBilling = (): boolean => {
-    const newErrors: FormErrors = { billing: {} };
-    if (!billing.first_name?.trim()) newErrors.billing!.first_name = "First name is required";
-    if (!billing.last_name?.trim()) newErrors.billing!.last_name = "Last name is required";
-    if (!billing.email?.trim()) {
-      newErrors.billing!.email = "Email is required";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(billing.email)) {
-      newErrors.billing!.email = "Invalid email format";
+    if (appliedCoupon && items.length > 0) {
+      const subtotal = parseCartTotal(total);
+      calculateDiscount(items, subtotal);
     }
-    if (!billing.phone?.trim()) newErrors.billing!.phone = "Phone is required";
-    if (!billing.address_1?.trim()) newErrors.billing!.address_1 = "Address is required";
-    if (!billing.city?.trim()) newErrors.billing!.city = "City is required";
-    if (!billing.postcode?.trim()) newErrors.billing!.postcode = "Postcode is required";
-    if (!billing.country?.trim()) newErrors.billing!.country = "Country is required";
-    if (!billing.state?.trim()) newErrors.billing!.state = "State is required";
+  }, [items, total, appliedCoupon, calculateDiscount]);
 
-    setErrors(newErrors);
-    return Object.keys(newErrors.billing || {}).length === 0;
-  };
+  // Calculate totals
+  const subtotal = parseCartTotal(total);
+  const shippingCost = watchedShippingMethod ? Number(watchedShippingMethod?.cost || 0) : 0;
+  const couponDiscount = discount || 0;
+  const gst = calculateGST(subtotal, shippingCost, couponDiscount);
+  const orderTotal = calculateTotal(subtotal, shippingCost, couponDiscount, gst);
 
-  const validateShipping = (): boolean => {
-    if (!shipToDifferentAddress) return true;
-    
-    const newErrors: FormErrors = { shipping: {} };
-    if (!shipping.first_name?.trim()) newErrors.shipping!.first_name = "First name is required";
-    if (!shipping.last_name?.trim()) newErrors.shipping!.last_name = "Last name is required";
-    if (!shipping.address_1?.trim()) newErrors.shipping!.address_1 = "Address is required";
-    if (!shipping.city?.trim()) newErrors.shipping!.city = "City is required";
-    if (!shipping.postcode?.trim()) newErrors.shipping!.postcode = "Postcode is required";
-    if (!shipping.country?.trim()) newErrors.shipping!.country = "Country is required";
-    if (!shipping.state?.trim()) newErrors.shipping!.state = "State is required";
-
-    setErrors((prev: any) => ({ ...prev, shipping: newErrors.shipping }));
-    return Object.keys(newErrors.shipping || {}).length === 0;
-  };
-
-  const placeOrder = async () => {
-    if (!validateBilling() || !validateShipping()) {
-      alert("Please fill in all required fields correctly.");
-      return;
-    }
-    if (!shippingMethod) {
-      alert("Please select a shipping method.");
-      return;
-    }
-    if (!paymentMethod) {
-      alert("Please select a payment method.");
+  // Submit handler
+  const onSubmit = async (data: CheckoutFormData) => {
+    if (items.length === 0) {
+      showError("Your cart is empty");
       return;
     }
 
     setPlacing(true);
+
     try {
-      const finalShipping = shipToDifferentAddress ? shipping : billing;
+      // 1. Sync cart with WooCommerce
+      await syncWithWooCommerce();
 
-      let paymentIntentId: string | null = null;
+      // 2. Process payment if online payment method
       let paymentProcessed = false;
+      const offlinePaymentMethods = ["cod", "bacs", "bank_transfer", "cheque"];
+      const isOfflinePayment = offlinePaymentMethods.includes(data.paymentMethod);
 
-      if (paymentMethod === "stripe" || paymentMethod === "stripe_cc" || paymentMethod === "paypal") {
+      if (!isOfflinePayment && data.paymentMethod === "paypal") {
         try {
           const paymentRes = await fetch("/api/payments/process", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              payment_method: paymentMethod,
-              amount: total,
+              payment_method: data.paymentMethod,
+              amount: orderTotal,
               currency: "AUD",
-              billing,
-              return_url: typeof window !== 'undefined' ? window.location.href : '',
+              billing: data.billing,
+              return_url: typeof window !== "undefined" ? window.location.href : "",
             }),
           });
 
           const paymentData = await paymentRes.json();
-          
           if (!paymentRes.ok || !paymentData.success) {
-            alert(paymentData.error || "Payment processing failed. Please try again.");
+            showError(paymentData.error || "Payment processing failed");
             setPlacing(false);
             return;
           }
-
-          paymentIntentId = paymentData.payment_intent_id || paymentData.transaction_id || null;
           paymentProcessed = paymentData.requires_payment !== false;
-          
-          if (paymentData.requires_payment && !paymentIntentId) {
-            alert("Payment verification failed. Please try again.");
-            setPlacing(false);
-            return;
-          }
         } catch (paymentError) {
           console.error("Payment processing error:", paymentError);
-          alert("Payment processing failed. Please try again.");
+          showError("Payment processing failed");
           setPlacing(false);
           return;
         }
       }
 
-      const res = await fetch("/api/orders", {
+      // 3. Prepare checkout payload
+      const finalShipping = data.shipToDifferentAddress ? data.shipping : data.billing;
+
+      const checkoutPayload = {
+        billing: data.billing,
+        shipping: finalShipping,
+        payment_method: data.paymentMethod,
+        payment_processed: paymentProcessed,
+        line_items: items.map((i) => ({
+          product_id: i.productId,
+          variation_id: i.variationId || undefined,
+          quantity: i.qty,
+          name: i.name,
+          price: i.price,
+          sku: i.sku,
+          slug: i.slug,
+        })),
+        shipping_lines: data.shippingMethod
+          ? [
+              {
+                method_id: data.shippingMethod.method_id || "flat_rate",
+                total: String(data.shippingMethod.total || data.shippingMethod.cost || 0),
+              },
+            ]
+          : [],
+        coupon_code: appliedCoupon?.code || searchParams.get("coupon") || undefined,
+        csrf_token: csrfToken,
+        ndis_number: data.ndis_number || undefined,
+        hcp_number: data.hcp_number || undefined,
+        delivery_authority: data.deliveryAuthority || "with_signature",
+        delivery_instructions: data.deliveryInstructions || "",
+        subscribe_newsletter: data.subscribe_newsletter || false,
+        total: orderTotal,
+      };
+
+      // 4. Create order via checkout API
+      const checkoutRes = await fetch("/api/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          payment_method: paymentMethod,
-          payment_method_title: enabledPaymentMethods.find(m => m.id === paymentMethod)?.title || (paymentMethod === "cod" ? "Cash on Delivery" : paymentMethod === "bank_transfer" || paymentMethod === "bacs" ? "Bank Transfer" : paymentMethod === "stripe" ? "Credit Card (Stripe)" : "PayPal"),
-          payment_intent_id: paymentIntentId,
-          set_paid: paymentProcessed,
-          billing,
-          shipping: finalShipping,
-          line_items: items.map((i) => ({
-            product_id: i.productId,
-            variation_id: i.variationId || undefined,
-            quantity: i.qty,
-            // Include per-item meta so Woo shows it in admin and emails
-            meta_data: [
-              // Delivery Frequency (if present on the cart item)
-              ...(i.deliveryFrequency || i.plan
-                ? [{ key: "Delivery Frequency", value: String(i.deliveryFrequency || i.plan) }]
-                : []),
-              // SKU (if present on the cart item)
-              ...(i.sku ? [{ key: "SKU", value: String(i.sku) }] : []),
-              // Variation (human-readable, if present on the cart item)
-              ...(i.variationName ? [{ key: "Variation", value: String(i.variationName) }] : []),
-            ],
-          })),
-          shipping_lines: shippingMethod ? [{ method_id: shippingMethod.method_id || "flat_rate", total: String(shippingMethod.total || shippingMethod.cost || 0) }] : [],
-          coupon_lines: discount > 0 ? [{ code: coupon, discount_amount: String(discount) }] : [],
-          meta_data: [
-            { key: "delivery_authority", value: deliveryAuthority },
-            { key: "delivery_instructions", value: deliveryInstructions },
-            { key: "subscribe_newsletter", value: subscribeNewsletter },
-            { key: "_payment_method", value: paymentMethod },
-            { key: "_payment_method_title", value: paymentMethod === "cod" ? "Cash on Delivery" : paymentMethod === "bank_transfer" || paymentMethod === "bacs" ? "Bank Transfer" : paymentMethod === "stripe" ? "Credit Card (Stripe)" : "PayPal" },
-          ],
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          "x-csrf-token": csrfToken,
+        },
+        body: JSON.stringify(checkoutPayload),
       });
 
-      if (subscribeNewsletter && billing.email) {
-        try {
-          await fetch("/api/newsletter/subscribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: billing.email }),
-          });
-        } catch {}
+      if (!checkoutRes.ok) {
+        const errorData = await checkoutRes.json().catch(() => ({}));
+        showError(errorData.error || "Failed to create order");
+        setPlacing(false);
+        return;
       }
 
-      const json = await res.json();
-      if (res.ok && json && json.id) {
-        setOrderId(json.id);
-        
-        if (user && user.id && billing.email) {
+      const checkoutData = await checkoutRes.json();
+
+      if (checkoutData.success && checkoutData.order) {
+        // Subscribe to newsletter if checked
+        if (data.subscribe_newsletter && data.billing.email) {
           try {
-            await fetch("/api/customers/update-payment-method", {
+            await fetch("/api/newsletter/subscribe", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                customerId: user.id,
-                paymentMethod: paymentMethod,
-                billing: billing,
-              }),
+              body: JSON.stringify({ email: data.billing.email }),
             });
           } catch {}
         }
+
+        success("Order placed successfully!");
+
+        // Store redirect URL before clearing cart
+        const redirectUrl = checkoutData.redirect_url || `/checkout/order-review?orderId=${checkoutData.order.id}`;
         
-        // Get token before clearing cart
-        const token = searchParams.get("token") || getStoredToken();
-        const orderId = json.id;
-        
-        console.log("Order created successfully:", orderId);
-        console.log("Redirecting to order review with token:", token ? "present" : "missing");
-        
-        // Clear cart after successful order
+        // Clear cart immediately (before redirect to prevent showing empty cart)
         clear();
         
-        // Redirect to order review with token and orderId
-        // Use window.location.href for reliable redirect (full page reload)
-        const reviewUrl = token 
-          ? `/checkout/order-review?token=${encodeURIComponent(token)}&orderId=${orderId}`
-          : `/checkout/order-review?orderId=${orderId}`;
-        
-        console.log("Redirecting to:", reviewUrl);
-        
-        // Use window.location for immediate, reliable redirect
-        if (typeof window !== 'undefined') {
-          window.location.href = reviewUrl;
-        } else {
-          router.push(reviewUrl);
-        }
+        // Use window.location for immediate redirect without re-render
+        window.location.href = redirectUrl;
       } else {
-        alert("Failed to create order");
+        showError("Failed to create order");
       }
-    } catch (e) {
-      alert("Order error");
+    } catch (error: any) {
+      console.error("Checkout error:", error);
+      showError(error.message || "An error occurred while placing your order");
     } finally {
       setPlacing(false);
     }
   };
 
-  // Show loading if not mounted or not authorized
-  if (!isMounted || !isAuthorized) {
+  if (!isMounted) {
     return (
       <div className="min-h-screen bg-gray-50 py-10 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-gray-600 mb-2">Redirecting...</div>
-          <div className="text-sm text-gray-500">Please add items to cart first</div>
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-10">
+        <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
+          <div className="text-center py-20">
+            <h1 className="text-2xl font-semibold mb-4">Your cart is empty</h1>
+            <Link
+              href="/shop"
+              className="inline-block rounded-md bg-gray-900 px-6 py-3 text-white hover:bg-black"
+            >
+              Continue Shopping
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -413,654 +380,642 @@ export default function CheckoutPage() {
       <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Checkout</h1>
-          {isMounted && (
-            <Link 
-              href={getCartUrl()}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              View Cart
-            </Link>
-          )}
+          <Link
+            href={getCartUrl()}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            View Cart
+          </Link>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
+        <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6 lg:grid-cols-3">
           {/* Checkout Form */}
           <div className="lg:col-span-2 space-y-6">
             {/* Billing Details */}
             <div className="rounded-xl border bg-white p-6">
               <h2 className="mb-4 text-lg font-semibold">Billing Details</h2>
+              
+              {/* Saved Address Selection */}
+              {user && billingAddresses.length > 0 && (
+                <div className="mb-4">
+                  <label className="mb-2 block text-sm font-medium text-gray-700">
+                    Select Saved Billing Address
+                  </label>
+                  <select
+                    value={selectedBillingAddress}
+                    onChange={(e) => {
+                      const addressId = e.target.value;
+                      setSelectedBillingAddress(addressId);
+                      if (addressId) {
+                        const address = billingAddresses.find(a => a.id === addressId);
+                        if (address) {
+                          setValue('billing.first_name', address.first_name);
+                          setValue('billing.last_name', address.last_name);
+                          setValue('billing.email', address.email || '');
+                          setValue('billing.phone', address.phone || '');
+                          setValue('billing.address_1', address.address_1);
+                          setValue('billing.address_2', address.address_2 || '');
+                          setValue('billing.city', address.city);
+                          setValue('billing.state', address.state);
+                          setValue('billing.postcode', address.postcode);
+                          setValue('billing.country', address.country);
+                        }
+                      }
+                    }}
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">Enter address manually</option>
+                    {billingAddresses.map((address) => (
+                      <option key={address.id} value={address.id}>
+                        {address.label || 'Address'} - {address.address_1}, {address.city}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     First Name <span className="text-rose-600">*</span>
                   </label>
-                  <input 
-                    type="text"
-                    value={billing.first_name || ''}
-                    onChange={(e) => {
-                      setBilling({ ...billing, first_name: e.target.value });
-                      if (errors.billing?.first_name) {
-                        setErrors((prev: any) => ({ ...prev, billing: { ...prev.billing, first_name: undefined } }));
-                      }
-                    }}
-                    className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.first_name ? 'border-rose-500' : 'border-gray-300'}`}
-                    placeholder="First name"
+                  <Controller
+                    name="billing.first_name"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="text"
+                        className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.first_name ? "border-rose-500" : "border-gray-300"}`}
+                      />
+                    )}
                   />
                   {errors.billing?.first_name && (
-                    <p className="mt-1 text-xs text-rose-600">{errors.billing.first_name}</p>
+                    <p className="mt-1 text-xs text-rose-600">{errors.billing.first_name.message}</p>
                   )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     Last Name <span className="text-rose-600">*</span>
                   </label>
-                  <input 
-                    type="text"
-                    value={billing.last_name || ''}
-                    onChange={(e) => {
-                      setBilling({ ...billing, last_name: e.target.value });
-                      if (errors.billing?.last_name) {
-                        setErrors((prev: any) => ({ ...prev, billing: { ...prev.billing, last_name: undefined } }));
-                      }
-                    }}
-                    className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.last_name ? 'border-rose-500' : 'border-gray-300'}`}
-                    placeholder="Last name"
+                  <Controller
+                    name="billing.last_name"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="text"
+                        className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.last_name ? "border-rose-500" : "border-gray-300"}`}
+                      />
+                    )}
                   />
                   {errors.billing?.last_name && (
-                    <p className="mt-1 text-xs text-rose-600">{errors.billing.last_name}</p>
+                    <p className="mt-1 text-xs text-rose-600">{errors.billing.last_name.message}</p>
                   )}
                 </div>
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     Email <span className="text-rose-600">*</span>
                   </label>
-                  <input 
-                    type="email"
-                    value={billing.email || ''}
-                    onChange={(e) => {
-                      setBilling({ ...billing, email: e.target.value });
-                      if (errors.billing?.email) {
-                        setErrors((prev: any) => ({ ...prev, billing: { ...prev.billing, email: undefined } }));
-                      }
-                    }}
-                    className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.email ? 'border-rose-500' : 'border-gray-300'}`}
-                    placeholder="email@example.com"
+                  <Controller
+                    name="billing.email"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="email"
+                        className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.email ? "border-rose-500" : "border-gray-300"}`}
+                      />
+                    )}
                   />
                   {errors.billing?.email && (
-                    <p className="mt-1 text-xs text-rose-600">{errors.billing.email}</p>
+                    <p className="mt-1 text-xs text-rose-600">{errors.billing.email.message}</p>
                   )}
                 </div>
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     Phone <span className="text-rose-600">*</span>
                   </label>
-                  <input 
-                    type="tel"
-                    value={billing.phone || ''}
-                    onChange={(e) => {
-                      setBilling({ ...billing, phone: e.target.value });
-                      if (errors.billing?.phone) {
-                        setErrors((prev: any) => ({ ...prev, billing: { ...prev.billing, phone: undefined } }));
-                      }
-                    }}
-                    className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.phone ? 'border-rose-500' : 'border-gray-300'}`}
-                    placeholder="Phone number"
+                  <Controller
+                    name="billing.phone"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="tel"
+                        className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.phone ? "border-rose-500" : "border-gray-300"}`}
+                      />
+                    )}
                   />
                   {errors.billing?.phone && (
-                    <p className="mt-1 text-xs text-rose-600">{errors.billing.phone}</p>
+                    <p className="mt-1 text-xs text-rose-600">{errors.billing.phone.message}</p>
                   )}
                 </div>
                 <div className="sm:col-span-2">
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     Address <span className="text-rose-600">*</span>
                   </label>
-                  <input 
-                    type="text"
-                    value={billing.address_1 || ''}
-                    onChange={(e) => {
-                      setBilling({ ...billing, address_1: e.target.value });
-                      if (errors.billing?.address_1) {
-                        setErrors((prev: any) => ({ ...prev, billing: { ...prev.billing, address_1: undefined } }));
-                      }
-                    }}
-                    className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.address_1 ? 'border-rose-500' : 'border-gray-300'}`}
-                    placeholder="Street address"
+                  <Controller
+                    name="billing.address_1"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="text"
+                        className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.address_1 ? "border-rose-500" : "border-gray-300"}`}
+                      />
+                    )}
                   />
                   {errors.billing?.address_1 && (
-                    <p className="mt-1 text-xs text-rose-600">{errors.billing.address_1}</p>
+                    <p className="mt-1 text-xs text-rose-600">{errors.billing.address_1.message}</p>
                   )}
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Address 2 (Optional)</label>
+                  <Controller
+                    name="billing.address_2"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="text"
+                        className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                      />
+                    )}
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     City <span className="text-rose-600">*</span>
                   </label>
-                  <input 
-                    type="text"
-                    value={billing.city || ''}
-                    onChange={(e) => {
-                      setBilling({ ...billing, city: e.target.value });
-                      if (errors.billing?.city) {
-                        setErrors((prev: any) => ({ ...prev, billing: { ...prev.billing, city: undefined } }));
-                      }
-                    }}
-                    className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.city ? 'border-rose-500' : 'border-gray-300'}`}
-                    placeholder="City"
+                  <Controller
+                    name="billing.city"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="text"
+                        className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.city ? "border-rose-500" : "border-gray-300"}`}
+                      />
+                    )}
                   />
                   {errors.billing?.city && (
-                    <p className="mt-1 text-xs text-rose-600">{errors.billing.city}</p>
+                    <p className="mt-1 text-xs text-rose-600">{errors.billing.city.message}</p>
                   )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     Postcode <span className="text-rose-600">*</span>
                   </label>
-                  <input 
-                    type="text"
-                    value={billing.postcode || ''}
-                    onChange={(e) => {
-                      setBilling({ ...billing, postcode: e.target.value });
-                      if (errors.billing?.postcode) {
-                        setErrors((prev: any) => ({ ...prev, billing: { ...prev.billing, postcode: undefined } }));
-                      }
-                    }}
-                    className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.postcode ? 'border-rose-500' : 'border-gray-300'}`}
-                    placeholder="Postcode"
+                  <Controller
+                    name="billing.postcode"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="text"
+                        className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.postcode ? "border-rose-500" : "border-gray-300"}`}
+                      />
+                    )}
                   />
                   {errors.billing?.postcode && (
-                    <p className="mt-1 text-xs text-rose-600">{errors.billing.postcode}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Country <span className="text-rose-600">*</span>
-                  </label>
-                  <input 
-                    type="text"
-                    value={billing.country || ''}
-                    onChange={(e) => {
-                      setBilling({ ...billing, country: e.target.value });
-                      if (errors.billing?.country) {
-                        setErrors((prev: any) => ({ ...prev, billing: { ...prev.billing, country: undefined } }));
-                      }
-                    }}
-                    className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.country ? 'border-rose-500' : 'border-gray-300'}`}
-                    placeholder="Country"
-                  />
-                  {errors.billing?.country && (
-                    <p className="mt-1 text-xs text-rose-600">{errors.billing.country}</p>
+                    <p className="mt-1 text-xs text-rose-600">{errors.billing.postcode.message}</p>
                   )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     State <span className="text-rose-600">*</span>
                   </label>
-                  <input 
-                    type="text"
-                    value={billing.state || ''}
-                    onChange={(e) => {
-                      setBilling({ ...billing, state: e.target.value });
-                      if (errors.billing?.state) {
-                        setErrors((prev: any) => ({ ...prev, billing: { ...prev.billing, state: undefined } }));
-                      }
-                    }}
-                    className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.state ? 'border-rose-500' : 'border-gray-300'}`}
-                    placeholder="State"
+                  <Controller
+                    name="billing.state"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="text"
+                        className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.state ? "border-rose-500" : "border-gray-300"}`}
+                      />
+                    )}
                   />
                   {errors.billing?.state && (
-                    <p className="mt-1 text-xs text-rose-600">{errors.billing.state}</p>
+                    <p className="mt-1 text-xs text-rose-600">{errors.billing.state.message}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Country <span className="text-rose-600">*</span>
+                  </label>
+                  <Controller
+                    name="billing.country"
+                    control={control}
+                    render={({ field }) => (
+                      <select
+                        {...field}
+                        className={`w-full rounded border px-3 py-2 text-sm ${errors.billing?.country ? "border-rose-500" : "border-gray-300"}`}
+                      >
+                        <option value="AU">Australia</option>
+                        <option value="NZ">New Zealand</option>
+                        <option value="US">United States</option>
+                        <option value="GB">United Kingdom</option>
+                      </select>
+                    )}
+                  />
+                  {errors.billing?.country && (
+                    <p className="mt-1 text-xs text-rose-600">{errors.billing.country.message}</p>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Shipping Address Option */}
+            {/* Ship to Different Address */}
             <div className="rounded-xl border bg-white p-6">
-              <div className="mb-4 flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  id="ship-to-different"
-                  checked={shipToDifferentAddress}
-                  onChange={(e) => setShipToDifferentAddress(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+              <label className="flex items-center gap-2">
+                <Controller
+                  name="shipToDifferentAddress"
+                  control={control}
+                  render={({ field }) => (
+                    <input
+                      type="checkbox"
+                      {...field}
+                      checked={field.value}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                  )}
                 />
-                <label htmlFor="ship-to-different" className="text-sm font-medium text-gray-700 cursor-pointer">
-                  Ship to a different address?
-                </label>
-              </div>
-
-              {shipToDifferentAddress && (
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
-                      First Name <span className="text-rose-600">*</span>
-                    </label>
-                    <input 
-                      type="text"
-                      value={shipping.first_name || ''}
-                      onChange={(e) => {
-                        const updated = { ...shipping, first_name: e.target.value };
-                        setShipping(updated);
-                        if (typeof window !== 'undefined') {
-                          try {
-                            localStorage.setItem('checkout:shipping', JSON.stringify(updated));
-                            window.dispatchEvent(new Event('shippingAddressChanged'));
-                          } catch {}
-                        }
-                        if (errors.shipping?.first_name) {
-                          setErrors((prev: any) => ({ ...prev, shipping: { ...prev.shipping, first_name: undefined } }));
-                        }
-                      }}
-                      className={`w-full rounded border px-3 py-2 text-sm ${errors.shipping?.first_name ? 'border-rose-500' : 'border-gray-300'}`}
-                      placeholder="First name"
-                    />
-                    {errors.shipping?.first_name && (
-                      <p className="mt-1 text-xs text-rose-600">{errors.shipping.first_name}</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
-                      Last Name <span className="text-rose-600">*</span>
-                    </label>
-                    <input 
-                      type="text"
-                      value={shipping.last_name || ''}
-                      onChange={(e) => {
-                        const updated = { ...shipping, last_name: e.target.value };
-                        setShipping(updated);
-                        if (typeof window !== 'undefined') {
-                          try {
-                            localStorage.setItem('checkout:shipping', JSON.stringify(updated));
-                            window.dispatchEvent(new Event('shippingAddressChanged'));
-                          } catch {}
-                        }
-                        if (errors.shipping?.last_name) {
-                          setErrors((prev: any) => ({ ...prev, shipping: { ...prev.shipping, last_name: undefined } }));
-                        }
-                      }}
-                      className={`w-full rounded border px-3 py-2 text-sm ${errors.shipping?.last_name ? 'border-rose-500' : 'border-gray-300'}`}
-                      placeholder="Last name"
-                    />
-                    {errors.shipping?.last_name && (
-                      <p className="mt-1 text-xs text-rose-600">{errors.shipping.last_name}</p>
-                    )}
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
-                      Address <span className="text-rose-600">*</span>
-                    </label>
-                    <input 
-                      type="text"
-                      value={shipping.address_1 || ''}
-                      onChange={(e) => {
-                        const updated = { ...shipping, address_1: e.target.value };
-                        setShipping(updated);
-                        if (typeof window !== 'undefined') {
-                          try {
-                            localStorage.setItem('checkout:shipping', JSON.stringify(updated));
-                            window.dispatchEvent(new Event('shippingAddressChanged'));
-                          } catch {}
-                        }
-                        if (errors.shipping?.address_1) {
-                          setErrors((prev: any) => ({ ...prev, shipping: { ...prev.shipping, address_1: undefined } }));
-                        }
-                      }}
-                      className={`w-full rounded border px-3 py-2 text-sm ${errors.shipping?.address_1 ? 'border-rose-500' : 'border-gray-300'}`}
-                      placeholder="Street address"
-                    />
-                    {errors.shipping?.address_1 && (
-                      <p className="mt-1 text-xs text-rose-600">{errors.shipping.address_1}</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
-                      City <span className="text-rose-600">*</span>
-                    </label>
-                    <input 
-                      type="text"
-                      value={shipping.city || ''}
-                      onChange={(e) => {
-                        const updated = { ...shipping, city: e.target.value };
-                        setShipping(updated);
-                        if (typeof window !== 'undefined') {
-                          try {
-                            localStorage.setItem('checkout:shipping', JSON.stringify(updated));
-                            window.dispatchEvent(new Event('shippingAddressChanged'));
-                          } catch {}
-                        }
-                        if (errors.shipping?.city) {
-                          setErrors((prev: any) => ({ ...prev, shipping: { ...prev.shipping, city: undefined } }));
-                        }
-                      }}
-                      className={`w-full rounded border px-3 py-2 text-sm ${errors.shipping?.city ? 'border-rose-500' : 'border-gray-300'}`}
-                      placeholder="City"
-                    />
-                    {errors.shipping?.city && (
-                      <p className="mt-1 text-xs text-rose-600">{errors.shipping.city}</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
-                      Postcode <span className="text-rose-600">*</span>
-                    </label>
-                    <input 
-                      type="text"
-                      value={shipping.postcode || ''}
-                      onChange={(e) => {
-                        const updated = { ...shipping, postcode: e.target.value };
-                        setShipping(updated);
-                        if (typeof window !== 'undefined') {
-                          try {
-                            localStorage.setItem('checkout:shipping', JSON.stringify(updated));
-                            window.dispatchEvent(new Event('shippingAddressChanged'));
-                          } catch {}
-                        }
-                        if (errors.shipping?.postcode) {
-                          setErrors((prev: any) => ({ ...prev, shipping: { ...prev.shipping, postcode: undefined } }));
-                        }
-                      }}
-                      className={`w-full rounded border px-3 py-2 text-sm ${errors.shipping?.postcode ? 'border-rose-500' : 'border-gray-300'}`}
-                      placeholder="Postcode"
-                    />
-                    {errors.shipping?.postcode && (
-                      <p className="mt-1 text-xs text-rose-600">{errors.shipping.postcode}</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
-                      Country <span className="text-rose-600">*</span>
-                    </label>
-                    <input 
-                      type="text"
-                      value={shipping.country || ''}
-                      onChange={(e) => {
-                        const updated = { ...shipping, country: e.target.value };
-                        setShipping(updated);
-                        if (typeof window !== 'undefined') {
-                          try {
-                            localStorage.setItem('checkout:shipping', JSON.stringify(updated));
-                            window.dispatchEvent(new Event('shippingAddressChanged'));
-                          } catch {}
-                        }
-                        if (errors.shipping?.country) {
-                          setErrors((prev: any) => ({ ...prev, shipping: { ...prev.shipping, country: undefined } }));
-                        }
-                      }}
-                      className={`w-full rounded border px-3 py-2 text-sm ${errors.shipping?.country ? 'border-rose-500' : 'border-gray-300'}`}
-                      placeholder="Country"
-                    />
-                    {errors.shipping?.country && (
-                      <p className="mt-1 text-xs text-rose-600">{errors.shipping.country}</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
-                      State <span className="text-rose-600">*</span>
-                    </label>
-                    <input 
-                      type="text"
-                      value={shipping.state || ''}
-                      onChange={(e) => {
-                        const updated = { ...shipping, state: e.target.value };
-                        setShipping(updated);
-                        if (typeof window !== 'undefined') {
-                          try {
-                            localStorage.setItem('checkout:shipping', JSON.stringify(updated));
-                            window.dispatchEvent(new Event('shippingAddressChanged'));
-                          } catch {}
-                        }
-                        if (errors.shipping?.state) {
-                          setErrors((prev: any) => ({ ...prev, shipping: { ...prev.shipping, state: undefined } }));
-                        }
-                      }}
-                      className={`w-full rounded border px-3 py-2 text-sm ${errors.shipping?.state ? 'border-rose-500' : 'border-gray-300'}`}
-                      placeholder="State"
-                    />
-                    {errors.shipping?.state && (
-                      <p className="mt-1 text-xs text-rose-600">{errors.shipping.state}</p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Delivery Authority */}
-            <div className="rounded-xl border bg-white p-6">
-              <h2 className="mb-4 text-lg font-semibold">Delivery Authority</h2>
-              <div className="space-y-3">
-                <label className={`flex cursor-pointer items-center gap-3 rounded border p-3 hover:bg-gray-50 transition-colors ${deliveryAuthority === "with_signature" ? "border-gray-900 bg-gray-50" : "border-gray-300"}`}>
-                  <input 
-                    type="radio" 
-                    name="delivery-authority" 
-                    value="with_signature" 
-                    checked={deliveryAuthority === "with_signature"} 
-                    onChange={(e) => setDeliveryAuthority(e.target.value as "with_signature" | "without_signature")} 
-                    className="h-4 w-4" 
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium text-sm">With Signature</div>
-                    <div className="text-xs text-gray-600">Require signature on delivery</div>
-                  </div>
-                </label>
-
-                <label className={`flex cursor-pointer items-center gap-3 rounded border p-3 hover:bg-gray-50 transition-colors ${deliveryAuthority === "without_signature" ? "border-gray-900 bg-gray-50" : "border-gray-300"}`}>
-                  <input 
-                    type="radio" 
-                    name="delivery-authority" 
-                    value="without_signature" 
-                    checked={deliveryAuthority === "without_signature"} 
-                    onChange={(e) => setDeliveryAuthority(e.target.value as "with_signature" | "without_signature")} 
-                    className="h-4 w-4" 
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium text-sm">Without Signature</div>
-                    <div className="text-xs text-gray-600">Leave at door (no signature required)</div>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            {/* Delivery Instructions */}
-            <div className="rounded-xl border bg-white p-6">
-              <h2 className="mb-4 text-lg font-semibold">Delivery Instructions</h2>
-              <textarea
-                value={deliveryInstructions}
-                onChange={(e) => setDeliveryInstructions(e.target.value)}
-                placeholder="Add any special delivery instructions (e.g., leave at front door, call on arrival, etc.)"
-                rows={4}
-                className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
-              />
-            </div>
-
-            {/* Newsletter Subscription */}
-            <div className="rounded-xl border bg-white p-6">
-              <label className="flex cursor-pointer items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={subscribeNewsletter}
-                  onChange={(e) => setSubscribeNewsletter(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                />
-                <div className="flex-1">
-                  <div className="font-medium text-sm text-gray-900">Subscribe to our newsletter</div>
-                  <div className="mt-1 text-xs text-gray-600">Get updates on new products, special offers, and more</div>
-                </div>
+                <span className="text-sm font-medium text-gray-700">Ship to a different address</span>
               </label>
-            </div>
-        </div>
 
-          {/* Sidebar */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Order Summary */}
-            <div className="rounded-xl border bg-white p-6 sticky top-4">
-              <h2 className="mb-4 text-lg font-semibold">Order Summary</h2>
-              <div className="mb-4 space-y-3 border-b pb-4">
-                {items.map((item) => (
-                  <div key={item.id} className="flex gap-3 text-sm">
-                    <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded bg-gray-100">
-                      {item.imageUrl ? (
-                        <Image src={item.imageUrl} alt={item.name} fill sizes="64px" className="object-cover" />
-                          ) : (
-                            <div className="grid h-full w-full place-items-center text-xs text-gray-400">No Img</div>
-                          )}
-                        </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-gray-900">{item.name}</div>
-                      {item.attributes && Object.keys(item.attributes).length > 0 && (
-                        <div className="text-xs text-gray-600">
-                          {Object.entries(item.attributes).map(([k, v]) => `${k}: ${v}`).join(", ")}
-                        </div>
-                      )}
-                      {item.sku && <div className="text-xs text-gray-600">SKU: {item.sku}</div>}
-                      <div className="mt-1 text-xs text-gray-600">Qty: {item.qty} × ${item.price}</div>
-                        </div>
-                      </div>
-                ))}
-                </div>
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">Subtotal</span>
-                  <span className="font-medium">${subtotal.toFixed(2)}</span>
+              {watchedShipToDifferent ? (
+                <div className="mt-4 space-y-4">
+                  {/* Saved Shipping Address Selection */}
+                  {user && shippingAddresses.length > 0 && (
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Select Saved Shipping Address
+                      </label>
+                      <select
+                        value={selectedShippingAddress}
+                        onChange={(e) => {
+                          const addressId = e.target.value;
+                          setSelectedShippingAddress(addressId);
+                          if (addressId) {
+                            const address = shippingAddresses.find(a => a.id === addressId);
+                            if (address) {
+                              setValue('shipping.first_name', address.first_name);
+                              setValue('shipping.last_name', address.last_name);
+                              setValue('shipping.address_1', address.address_1);
+                              setValue('shipping.address_2', address.address_2 || '');
+                              setValue('shipping.city', address.city);
+                              setValue('shipping.state', address.state);
+                              setValue('shipping.postcode', address.postcode);
+                              setValue('shipping.country', address.country);
+                            }
+                          }
+                        }}
+                        className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                      >
+                        <option value="">Enter address manually</option>
+                        {shippingAddresses.map((address) => (
+                          <option key={address.id} value={address.id}>
+                            {address.label || 'Address'} - {address.address_1}, {address.city}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">First Name</label>
+                      <Controller
+                        name="shipping.first_name"
+                        control={control}
+                        render={({ field }) => (
+                          <input {...field} type="text" className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">Last Name</label>
+                      <Controller
+                        name="shipping.last_name"
+                        control={control}
+                        render={({ field }) => (
+                          <input {...field} type="text" className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
+                        )}
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="mb-1 block text-sm font-medium text-gray-700">Address</label>
+                      <Controller
+                        name="shipping.address_1"
+                        control={control}
+                        render={({ field }) => (
+                          <input {...field} type="text" className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">City</label>
+                      <Controller
+                        name="shipping.city"
+                        control={control}
+                        render={({ field }) => (
+                          <input {...field} type="text" className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">Postcode</label>
+                      <Controller
+                        name="shipping.postcode"
+                        control={control}
+                        render={({ field }) => (
+                          <input {...field} type="text" className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">State</label>
+                      <Controller
+                        name="shipping.state"
+                        control={control}
+                        render={({ field }) => (
+                          <input {...field} type="text" className="w-full rounded border border-gray-300 px-3 py-2 text-sm" />
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">Country</label>
+                      <Controller
+                        name="shipping.country"
+                        control={control}
+                        render={({ field }) => (
+                          <select {...field} className="w-full rounded border border-gray-300 px-3 py-2 text-sm">
+                            <option value="AU">Australia</option>
+                            <option value="NZ">New Zealand</option>
+                          </select>
+                        )}
+                      />
+                    </div>
                   </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">Shipping</span>
-                  <span className="font-medium">${shippingCost.toFixed(2)}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600">GST (10%)</span>
-                  <span className="font-medium">${gst.toFixed(2)}</span>
-                </div>
-                {discount > 0 && (
-                  <div className="flex items-center justify-between text-green-600">
-                    <span>Discount</span>
-                    <span>−${discount.toFixed(2)}</span>
-          </div>
-        )}
-                <div className="mt-4 border-t pt-3">
-                  <div className="flex items-center justify-between text-base">
-                    <span className="font-semibold">Total</span>
-                    <span className="font-bold text-lg">${total.toFixed(2)}</span>
-              </div>
-            </div>
-              </div>
+              ) : null}
             </div>
 
             {/* Shipping Method */}
-            <div className="rounded-xl border bg-white p-6 sticky top-4">
+            <div className="rounded-xl border bg-white p-6">
               <h2 className="mb-4 text-lg font-semibold">Shipping Method</h2>
-              {rates.length === 0 ? (
-                <div className="text-sm text-gray-600">No rates available</div>
-              ) : (
-                <div className="space-y-2">
-                  {rates.map((r) => (
-                    <label key={r.id} className={`flex cursor-pointer items-center gap-2 rounded border p-2 text-xs hover:bg-gray-50 transition-colors ${shippingMethod?.id === r.id ? "border-gray-900 bg-gray-50" : "border-gray-300"}`}>
-                      <input 
-                        type="radio" 
-                        name="shipping-sidebar" 
-                        value={r.id} 
-                        checked={shippingMethod?.id === r.id} 
-                        onChange={() => setShippingMethod(r)} 
-                        className="h-3 w-3" 
-                      />
-                      <span className="flex-1 text-xs">
-                        <span className="font-medium">{r.label}</span>
-                        <span className="ml-1 text-gray-500">({r.zone})</span>
-                      </span>
-                      <span className="font-semibold text-xs">${Number(r.cost || 0).toFixed(2)}</span>
-                    </label>
-                  ))}
-                </div>
+              <Controller
+                name="shippingMethod"
+                control={control}
+                render={({ field }) => (
+                  <ShippingOptions
+                    country={watchedShipToDifferent ? shippingCountry : billingCountry}
+                    zone={(watchedShipToDifferent ? shippingCountry : billingCountry) === 'AU' ? 'Australia' : ''}
+                    postcode={watchedShipToDifferent ? shippingPostcode : billingPostcode}
+                    state={watchedShipToDifferent ? shippingState : billingState}
+                    subtotal={cartSubtotal}
+                    items={items}
+                    selectedRateId={field.value?.id}
+                    onRateChange={(rateId, rate) => {
+                      field.onChange(rate);
+                    }}
+                    showLabel={false}
+                    className=""
+                  />
+                )}
+              />
+              {errors.shippingMethod && (
+                <p className="mt-2 text-xs text-rose-600">{errors.shippingMethod.message}</p>
               )}
             </div>
 
             {/* Payment Method */}
-            <div className="rounded-xl border bg-white p-6 sticky top-4">
+            <div className="rounded-xl border bg-white p-6">
               <h2 className="mb-4 text-lg font-semibold">Payment Method</h2>
-              {enabledPaymentMethods.length === 0 ? (
-                <div className="py-4 text-center text-sm text-gray-500">Loading payment methods...</div>
-              ) : (
-                <div className="space-y-3">
-                  {enabledPaymentMethods.map((method) => {
-                    const getIcon = (id: string) => {
-                      if (id === "stripe" || id === "stripe_cc") {
-                        return (
-                          <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                          </svg>
-                        );
-                      } else if (id === "paypal") {
-                        return (
-                          <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                          </svg>
-                        );
-                      } else if (id === "bacs" || id === "bank_transfer") {
-                        return (
-                          <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
-                          </svg>
-                        );
-                      } else {
-                        return (
-                          <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                          </svg>
-                        );
-                      }
-                    };
-
-                    return (
-                      <label 
-                        key={method.id} 
-                        className={`flex cursor-pointer items-center gap-3 rounded border p-3 hover:bg-gray-50 transition-colors ${paymentMethod === method.id ? "border-gray-900 bg-gray-50" : "border-gray-300"}`}
-                      >
-                        <input 
-                          type="radio" 
-                          name="payment-method" 
-                          value={method.id} 
-                          checked={paymentMethod === method.id} 
-                          onChange={(e) => {
-                            setPaymentMethod(e.target.value);
-                            if (user && user.id && billing.email) {
-                              fetch("/api/customers/update-payment-method", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  customerId: user.id,
-                                  paymentMethod: e.target.value,
-                                  billing: billing,
-                                }),
-                              }).catch(() => {});
-                            }
-                          }} 
-                          className="h-4 w-4" 
+              <div className="space-y-2">
+                {enabledPaymentMethods.map((method) => (
+                  <label
+                    key={method.id}
+                    className="flex cursor-pointer items-start gap-3 rounded border p-3 hover:bg-gray-50"
+                  >
+                    <Controller
+                      name="paymentMethod"
+                      control={control}
+                      render={({ field }) => (
+                        <input
+                          type="radio"
+                          {...field}
+                          value={method.id}
+                          checked={field.value === method.id}
+                          className="mt-1 h-4 w-4"
                         />
-                        <div className="flex-1">
-                          <div className="font-medium text-sm">{method.title}</div>
-                          {method.description && (
-                            <div className="text-xs text-gray-600">{method.description}</div>
-                          )}
+                      )}
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900">{method.title}</div>
+                      {method.description && <div className="mt-1 text-xs text-gray-500">{method.description}</div>}
+                    </div>
+                  </label>
+                ))}
               </div>
-                        {getIcon(method.id)}
-                      </label>
-                    );
-                  })}
-          </div>
-        )}
+              {errors.paymentMethod && (
+                <p className="mt-1 text-xs text-rose-600">{errors.paymentMethod.message}</p>
+              )}
             </div>
 
-            {/* Pay Now Button */}
+            {/* NDIS/HCP Fields */}
             <div className="rounded-xl border bg-white p-6">
-              <button 
-                onClick={placeOrder}
-                disabled={placing || !paymentMethod || items.length === 0}
-                className="w-full rounded-md bg-gray-900 px-4 py-3 text-sm font-medium text-white hover:bg-black disabled:bg-gray-400 disabled:cursor-not-allowed"
+              <h2 className="mb-4 text-lg font-semibold">Additional Information</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">NDIS Number (Optional)</label>
+                  <Controller
+                    name="ndis_number"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="text"
+                        placeholder="Enter your NDIS number"
+                        className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                      />
+                    )}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">HCP Number (Optional)</label>
+                  <Controller
+                    name="hcp_number"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        {...field}
+                        type="text"
+                        placeholder="Enter your HCP number"
+                        className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                      />
+                    )}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Delivery Authority</label>
+                  <Controller
+                    name="deliveryAuthority"
+                    control={control}
+                    render={({ field }) => (
+                      <select {...field} className="w-full rounded border border-gray-300 px-3 py-2 text-sm">
+                        <option value="with_signature">With Signature Required</option>
+                        <option value="without_signature">Without Signature</option>
+                      </select>
+                    )}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Delivery Instructions (Optional)</label>
+                  <Controller
+                    name="deliveryInstructions"
+                    control={control}
+                    render={({ field }) => (
+                      <textarea
+                        {...field}
+                        rows={3}
+                        placeholder="Special delivery instructions..."
+                        className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                      />
+                    )}
+                  />
+                </div>
+                <label className="flex items-center gap-2">
+                  <Controller
+                    name="subscribe_newsletter"
+                    control={control}
+                    render={({ field }) => (
+                      <input
+                        type="checkbox"
+                        {...field}
+                        checked={field.value}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                    )}
+                  />
+                  <span className="text-sm text-gray-700">Subscribe to our newsletter</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Terms and Conditions */}
+            <div className="rounded-xl border bg-white p-6">
+              <label className="flex items-start gap-2">
+                <Controller
+                  name="termsAccepted"
+                  control={control}
+                  render={({ field }) => (
+                    <input
+                      type="checkbox"
+                      {...field}
+                      checked={field.value}
+                      className="mt-1 h-4 w-4 rounded border-gray-300"
+                    />
+                  )}
+                />
+                <span className="text-sm text-gray-700">
+                  I agree to the <Link href="/terms" className="text-blue-600 hover:underline">Terms and Conditions</Link> and{" "}
+                  <Link href="/privacy" className="text-blue-600 hover:underline">Privacy Policy</Link>
+                </span>
+              </label>
+              {errors.termsAccepted && (
+                <p className="mt-1 text-xs text-rose-600">{errors.termsAccepted.message}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Order Summary */}
+          <div className="lg:col-span-1">
+            <div className="rounded-xl border bg-white p-6 sticky top-4">
+              <h2 className="mb-4 text-lg font-semibold">Order Summary</h2>
+
+              <div className="mb-4 space-y-2">
+                {items.map((item) => (
+                  <div key={item.id} className="flex items-start gap-3 text-sm">
+                    <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded bg-gray-100">
+                      {item.imageUrl ? (
+                        <Image src={item.imageUrl} alt={item.name} fill sizes="64px" className="object-cover" />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center text-xs text-gray-400">No Image</div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-900">{item.name}</div>
+                      <div className="text-xs text-gray-500">Qty: {item.qty}</div>
+                      <div className="font-semibold text-gray-900">{formatPrice(Number(item.price) * item.qty)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Coupon Input */}
+              <div className="mb-4">
+                <CouponInput />
+              </div>
+
+              <div className="space-y-2 border-t pt-4 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">Subtotal</span>
+                  <span className="font-medium">{formatPrice(subtotal)}</span>
+                </div>
+                {couponDiscount > 0 && (
+                  <div className="flex items-center justify-between text-emerald-600">
+                    <span>Discount {appliedCoupon && `(${appliedCoupon.code})`}</span>
+                    <span className="font-medium">-{formatPrice(couponDiscount)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">Shipping</span>
+                  <span className="font-medium">{formatPrice(shippingCost)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">GST (10%)</span>
+                  <span className="font-medium">{formatPrice(gst)}</span>
+                </div>
+                <div className="mt-4 border-t pt-3">
+                  <div className="flex items-center justify-between text-base">
+                    <span className="font-semibold">Total</span>
+                    <span className="font-bold text-lg">{formatPrice(orderTotal)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={placing}
+                className="mt-6 w-full rounded-md bg-gray-900 px-4 py-3 text-center text-sm font-medium text-white hover:bg-black disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {placing ? "Processing..." : "Pay Now"}
+                {placing ? "Processing..." : "Place Order"}
               </button>
             </div>
           </div>
-          </div>
+        </form>
       </div>
     </div>
   );
 }
+
+export default function CheckoutPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 py-10 flex items-center justify-center">
+          <div className="text-center">
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent"></div>
+            <p className="mt-4 text-gray-600">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <CheckoutPageContent />
+    </Suspense>
+  );
+}
+

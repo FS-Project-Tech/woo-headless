@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { createPublicApiHandler, API_TIMEOUT } from '@/lib/api-middleware';
 
 function getWpBase(): string | null {
   const api = process.env.NEXT_PUBLIC_WC_API_URL || '';
@@ -11,7 +12,7 @@ function getWpBase(): string | null {
   }
 }
 
-export async function GET() {
+async function getHeaderData(req: NextRequest) {
   // Read environment variables (server-side only)
   const fallback = {
     logo: process.env.NEXT_PUBLIC_HEADER_LOGO || null,
@@ -74,3 +75,14 @@ export async function GET() {
     siteName: siteName || fallback.siteName,
   }, { headers: { 'Cache-Control': 'no-store' } });
 }
+
+// Export with security middleware
+export const GET = createPublicApiHandler(getHeaderData, {
+  rateLimit: {
+    windowMs: 60 * 1000, // 1 minute
+    maxRequests: 30, // 30 requests per minute
+  },
+  timeout: API_TIMEOUT.DEFAULT,
+  sanitize: true,
+  allowedMethods: ['GET'],
+});

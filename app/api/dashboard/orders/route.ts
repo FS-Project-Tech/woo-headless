@@ -1,21 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthToken, getWpBaseUrl } from '@/lib/auth';
+import { getWpBaseUrl } from '@/lib/auth';
 import wcAPI from '@/lib/woocommerce';
+import { createProtectedApiHandler, API_TIMEOUT } from '@/lib/api-middleware';
+import { sanitizeObject, sanitizeUser } from '@/lib/sanitize';
 
 /**
  * GET /api/dashboard/orders
  * Fetch orders for the authenticated user
+ * Protected with JWT authentication, rate limiting, and response sanitization
  */
-export async function GET(req: NextRequest) {
+async function getOrders(req: NextRequest, context: { user: any; token: string }) {
   try {
-    const token = await getAuthToken();
-    
-    if (!token) {
-      return NextResponse.json(
-        { error: 'Not authenticated' },
-        { status: 401 }
-      );
-    }
+    const { user, token } = context;
 
     const wpBase = getWpBaseUrl();
     if (!wpBase) {
@@ -41,10 +37,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const user = await userResponse.json();
+    const userData = await userResponse.json();
 
     // Get WooCommerce customer ID
-    const customerResponse = await fetch(`${wpBase}/wp-json/wc/v3/customers?email=${encodeURIComponent(user.email)}`, {
+    const customerResponse = await fetch(`${wpBase}/wp-json/wc/v3/customers?email=${encodeURIComponent(userData.email)}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -61,8 +57,8 @@ export async function GET(req: NextRequest) {
     }
 
     // If no customer ID found, try to use WordPress user ID
-    if (!customerId && user.id) {
-      customerId = user.id;
+    if (!customerId && userData.id) {
+      customerId = userData.id;
     }
 
     // Get pagination parameters from query string
@@ -81,8 +77,8 @@ export async function GET(req: NextRequest) {
     // Set customer filter - try customer ID first, then email
     if (customerId) {
       orderParams.customer = customerId.toString();
-    } else if (user.email) {
-      orderParams.customer = user.email;
+    } else if (userData.email) {
+      orderParams.customer = userData.email;
     } else {
       console.warn('No customer ID or email found for orders query');
       return NextResponse.json({ 
@@ -103,11 +99,11 @@ export async function GET(req: NextRequest) {
       let orders = response.data || [];
       
       // Also fetch orders by billing email to catch pending/guest orders
-      if (user.email) {
+      if (userData.email) {
         try {
           const emailParams = {
             ...orderParams,
-            customer: user.email, // Use email instead of ID
+            customer: userData.email, // Use email instead of ID
           };
           const emailResponse = await wcAPI.get('/orders', { params: emailParams });
           const emailOrders = emailResponse.data || [];
@@ -117,9 +113,9 @@ export async function GET(req: NextRequest) {
           [...orders, ...emailOrders].forEach((order: any) => {
             if (!orderMap.has(order.id)) {
               // Verify order belongs to user by checking billing email
-              if (order.billing?.email?.toLowerCase() === user.email?.toLowerCase() ||
+              if (order.billing?.email?.toLowerCase() === userData.email?.toLowerCase() ||
                   order.customer_id === customerId ||
-                  order.customer_id === user.id) {
+                  order.customer_id === userData.id) {
                 orderMap.set(order.id, order);
               }
             }
@@ -145,8 +141,11 @@ export async function GET(req: NextRequest) {
       const endIndex = startIndex + perPage;
       const paginatedOrders = orders.slice(startIndex, endIndex);
       
+      // Sanitize orders data
+      const sanitizedOrders = paginatedOrders.map((order: any) => sanitizeObject(order));
+      
       return NextResponse.json({ 
-        orders: paginatedOrders,
+        orders: sanitizedOrders,
         pagination: {
           page,
           per_page: perPage,
@@ -159,7 +158,7 @@ export async function GET(req: NextRequest) {
         status: wcError.response?.status,
         message: wcError.response?.data?.message || wcError.message,
         customerId,
-        userEmail: user.email,
+        userEmail: userData.email,
       });
 
       // Method 2: Try with JWT token as fallback
@@ -182,10 +181,10 @@ export async function GET(req: NextRequest) {
           let orders = await ordersResponse.json() || [];
           
           // Also fetch orders by billing email to catch pending/guest orders
-          if (user.email) {
+          if (userData.email) {
             try {
               const emailOrdersUrl = new URL(`${wpBase}/wp-json/wc/v3/orders`);
-              const emailParams = { ...orderParams, customer: user.email };
+              const emailParams = { ...orderParams, customer: userData.email };
               Object.keys(emailParams).forEach(key => {
                 emailOrdersUrl.searchParams.set(key, emailParams[key]);
               });
@@ -206,9 +205,9 @@ export async function GET(req: NextRequest) {
                 [...orders, ...emailOrders].forEach((order: any) => {
                   if (!orderMap.has(order.id)) {
                     // Verify order belongs to user by checking billing email
-                    if (order.billing?.email?.toLowerCase() === user.email?.toLowerCase() ||
+                    if (order.billing?.email?.toLowerCase() === userData.email?.toLowerCase() ||
                         order.customer_id === customerId ||
-                        order.customer_id === user.id) {
+                        order.customer_id === userData.id) {
                       orderMap.set(order.id, order);
                     }
                   }
@@ -234,8 +233,11 @@ export async function GET(req: NextRequest) {
           const endIndex = startIndex + perPage;
           const paginatedOrders = orders.slice(startIndex, endIndex);
           
+          // Sanitize orders data
+          const sanitizedOrders = paginatedOrders.map((order: any) => sanitizeObject(order));
+          
           return NextResponse.json({ 
-            orders: paginatedOrders,
+            orders: sanitizedOrders,
             pagination: {
               page,
               per_page: perPage,
@@ -273,4 +275,15 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+
+// Export with security middleware
+export const GET = createProtectedApiHandler(getOrders, {
+  rateLimit: {
+    windowMs: 60 * 1000, // 1 minute
+    maxRequests: 30, // 30 requests per minute (lower for authenticated routes)
+  },
+  timeout: API_TIMEOUT.DEFAULT,
+  sanitize: true,
+  allowedMethods: ['GET'],
+});
 

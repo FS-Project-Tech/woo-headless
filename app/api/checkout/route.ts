@@ -10,7 +10,7 @@ import {
   validateCSRFToken,
 } from "@/lib/checkout-security";
 import { syncCartToWooCommerce } from "@/lib/cart-sync";
-import type { CartItem } from "@/components/CartProvider";
+import type { CartItem } from "@/lib/types/cart";
 
 /**
  * POST /api/checkout

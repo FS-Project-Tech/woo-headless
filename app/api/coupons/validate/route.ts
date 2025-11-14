@@ -1,11 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import wcAPI from "@/lib/woocommerce";
+import { createPublicApiHandler, API_TIMEOUT } from "@/lib/api-middleware";
+import { sanitizeResponse } from "@/lib/sanitize";
 
 /**
  * Validate coupon code via WooCommerce API
  * Returns discount amount and details if valid
+ * Protected with rate limiting and response sanitization
  */
-export async function POST(req: Request) {
+async function validateCoupon(req: NextRequest) {
   try {
     const body = await req.json();
     const { code, items } = body;
@@ -106,8 +109,9 @@ export async function POST(req: Request) {
 
 /**
  * Calculate discount amount for cart items
+ * Protected with rate limiting and response sanitization
  */
-export async function PUT(req: Request) {
+async function calculateDiscount(req: NextRequest) {
   try {
     const body = await req.json();
     const { code, items, subtotal } = body;
@@ -227,4 +231,26 @@ export async function PUT(req: Request) {
     );
   }
 }
+
+// Export with security middleware
+export const POST = createPublicApiHandler(validateCoupon, {
+  rateLimit: {
+    windowMs: 60 * 1000, // 1 minute
+    maxRequests: 30, // 30 requests per minute (lower for coupon validation)
+  },
+  timeout: API_TIMEOUT.DEFAULT,
+  sanitize: true,
+  allowedMethods: ['POST'],
+});
+
+// Export PUT handler with security middleware
+export const PUT = createPublicApiHandler(calculateDiscount, {
+  rateLimit: {
+    windowMs: 60 * 1000, // 1 minute
+    maxRequests: 30, // 30 requests per minute
+  },
+  timeout: API_TIMEOUT.DEFAULT,
+  sanitize: true,
+  allowedMethods: ['PUT'],
+});
 
