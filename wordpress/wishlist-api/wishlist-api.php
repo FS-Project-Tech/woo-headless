@@ -15,26 +15,63 @@ add_action('rest_api_init', function () {
     // Get wishlist
     register_rest_route('custom/v1', '/wishlist', array(
         'methods' => 'GET',
-        'callback' => 'get_user_wishlist',
-        'permission_callback' => 'is_user_logged_in',
+        'callback' => 'wishlist_api_get_user_wishlist',
+        'permission_callback' => 'wishlist_api_is_user_logged_in',
     ));
 
     // Add to wishlist
     register_rest_route('custom/v1', '/wishlist/add', array(
         'methods' => 'POST',
-        'callback' => 'add_to_wishlist',
-        'permission_callback' => 'is_user_logged_in',
+        'callback' => 'wishlist_api_add_to_wishlist',
+        'permission_callback' => 'wishlist_api_is_user_logged_in',
     ));
 
     // Remove from wishlist
     register_rest_route('custom/v1', '/wishlist/remove', array(
         'methods' => 'POST',
-        'callback' => 'remove_from_wishlist',
-        'permission_callback' => 'is_user_logged_in',
+        'callback' => 'wishlist_api_remove_from_wishlist',
+        'permission_callback' => 'wishlist_api_is_user_logged_in',
     ));
 });
 
-function is_user_logged_in($request) {
+// Hook into JWT authentication to ensure user is set
+// Only add this filter if JWT Auth plugin is available and user is not already set
+add_filter('determine_current_user', 'wishlist_api_determine_user', 20);
+
+function wishlist_api_determine_user($user_id) {
+    // If user is already set, return it
+    if ($user_id > 0) {
+        return $user_id;
+    }
+    
+    // Check for JWT token in Authorization header
+    $auth_header = '';
+    if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+        $auth_header = $_SERVER['HTTP_AUTHORIZATION'];
+    } elseif (function_exists('getallheaders')) {
+        $headers = getallheaders();
+        if (isset($headers['Authorization'])) {
+            $auth_header = $headers['Authorization'];
+        }
+    }
+    
+    if ($auth_header && preg_match('/Bearer\s+(.*)$/i', $auth_header, $matches)) {
+        $token = $matches[1];
+        
+        // Try to get user from JWT token if jwt-auth plugin is available
+        if (function_exists('jwt_auth_get_user_from_token')) {
+            $user = jwt_auth_get_user_from_token($token);
+            if ($user && isset($user->ID) && $user->ID > 0) {
+                wp_set_current_user($user->ID);
+                return $user->ID;
+            }
+        }
+    }
+    
+    return $user_id;
+}
+
+function wishlist_api_is_user_logged_in($request) {
     // Check if user is logged in via session
     $user_id = get_current_user_id();
     if ($user_id > 0) {
@@ -45,8 +82,22 @@ function is_user_logged_in($request) {
     $auth_header = $request->get_header('Authorization');
     if ($auth_header && preg_match('/Bearer\s+(.*)$/i', $auth_header, $matches)) {
         $token = $matches[1];
-        // Validate JWT token using jwt-auth plugin if available
-        // The jwt-auth plugin should set the user context automatically
+        
+        // Try to get user from JWT token if jwt-auth plugin is available
+        if (function_exists('jwt_auth_get_user_from_token')) {
+            $user = jwt_auth_get_user_from_token($token);
+            if ($user && isset($user->ID) && $user->ID > 0) {
+                wp_set_current_user($user->ID);
+                return true;
+            }
+        }
+        
+        // Set Authorization header in $_SERVER for JWT Auth plugin to process
+        if (!isset($_SERVER['HTTP_AUTHORIZATION'])) {
+            $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+        }
+        
+        // Check again after setting header
         $user_id = get_current_user_id();
         if ($user_id > 0) {
             return true;
@@ -56,7 +107,7 @@ function is_user_logged_in($request) {
     return false;
 }
 
-function get_user_wishlist($request) {
+function wishlist_api_get_user_wishlist($request) {
     $user_id = get_current_user_id();
     if (!$user_id) {
         return new WP_Error('unauthorized', 'User not logged in', array('status' => 401));
@@ -78,7 +129,7 @@ function get_user_wishlist($request) {
     return rest_ensure_response(array('wishlist' => $wishlist));
 }
 
-function add_to_wishlist($request) {
+function wishlist_api_add_to_wishlist($request) {
     $user_id = get_current_user_id();
     if (!$user_id) {
         return new WP_Error('unauthorized', 'User not logged in', array('status' => 401));
@@ -113,7 +164,7 @@ function add_to_wishlist($request) {
     return rest_ensure_response(array('wishlist' => $wishlist));
 }
 
-function remove_from_wishlist($request) {
+function wishlist_api_remove_from_wishlist($request) {
     $user_id = get_current_user_id();
     if (!$user_id) {
         return new WP_Error('unauthorized', 'User not logged in', array('status' => 401));
