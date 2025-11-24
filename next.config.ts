@@ -21,7 +21,8 @@ const nextConfig: NextConfig = {
   // Enable compression (gzip + Brotli)
   compress: true,
   
-  // Turbopack configuration (Next.js 16 uses Turbopack by default)
+  // Use webpack instead of Turbopack (for compatibility with existing webpack config)
+  // Add empty turbopack config to silence the warning
   turbopack: {},
   
   // Enable experimental features for better performance
@@ -34,13 +35,18 @@ const nextConfig: NextConfig = {
       '@tanstack/react-query',
       'react-hook-form',
       'lucide-react',
-      'zustand',
     ],
     // Enable faster refresh for better HMR experience
     // optimizeCss: true, // Uncomment if using CSS optimization
     // Turbopack persistent caching (available in Next.js 15.1+)
     // turbopackPersistentCaching: true, // Uncomment if using Next.js 15.1+
   },
+  
+  // Route-based prefetching configuration
+  // Next.js automatically prefetches links when they enter the viewport
+  // This configuration optimizes prefetch behavior
+  // Note: Prefetch distance is controlled by Next.js internally (default: ~200px)
+  // We can optimize by using prefetch={true} on critical paths
   
   // ISR (Incremental Static Regeneration) for SEO-friendly product/category pages
   // Pages will be statically generated and revalidated every 5 minutes
