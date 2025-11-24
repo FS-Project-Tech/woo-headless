@@ -1,7 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import MiniProductsSlider from "@/components/MiniProductsSlider";
+import dynamic from "next/dynamic";
+
+// Dynamically import MiniProductsSlider - heavy component with Swiper
+const MiniProductsSlider = dynamic(() => import("@/components/MiniProductsSlider"), {
+  loading: () => (
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-6">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="h-[200px] animate-pulse rounded-lg border border-gray-200 bg-white" />
+      ))}
+    </div>
+  ),
+  ssr: false, // Client-side only for Swiper
+});
 
 type Product = {
   id: number;

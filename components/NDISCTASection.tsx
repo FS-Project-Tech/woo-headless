@@ -8,11 +8,11 @@ export default function NDISCTASection() {
 
   return (
     <section id="ndis" className="mb-16">
-      <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
-        <div className="rounded-2xl overflow-hidden bg-gradient-to-r from-teal-50 to-blue-50 shadow-xl">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
+      <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8" suppressHydrationWarning>
+        <div className="rounded-2xl overflow-hidden bg-gradient-to-r from-teal-50 to-blue-50 shadow-xl" suppressHydrationWarning>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-0" suppressHydrationWarning>
             {/* Left Side - Image */}
-            <div className="relative h-64 lg:h-auto min-h-[400px]">
+            <div className="relative h-64 lg:h-auto min-h-[400px]" suppressHydrationWarning>
               <Image
                 src={ndisImage}
                 alt="NDIS participant enjoying independence in garden"
@@ -25,8 +25,8 @@ export default function NDISCTASection() {
             </div>
 
             {/* Right Side - NDIS Information */}
-            <div className="flex flex-col justify-center p-8 lg:p-12 bg-white lg:bg-transparent">
-              <div className="mb-4">
+            <div className="flex flex-col justify-center p-8 lg:p-12 bg-white lg:bg-transparent" suppressHydrationWarning>
+              <div className="mb-4" suppressHydrationWarning>
                 <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
                   What is NDIS?
                 </h2>

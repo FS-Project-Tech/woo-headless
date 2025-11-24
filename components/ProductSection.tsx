@@ -1,7 +1,7 @@
 import Link from "next/link";
 import ProductCard from "@/components/ProductCard";
-import ProductsSlider from "@/components/ProductsSlider";
 import { fetchCategoryBySlug, fetchProducts } from "@/lib/woocommerce";
+import ProductSectionWrapper from "@/components/ProductSectionWrapper";
 
 interface ProductSectionProps {
   title: string;
@@ -13,7 +13,6 @@ interface ProductSectionProps {
     orderby?: string;
     order?: string;
     featured?: boolean;
-    on_sale?: boolean;
   };
 }
 
@@ -29,37 +28,27 @@ export default async function ProductSection(props: ProductSectionProps) {
 
   const products = await (async () => {
     try {
-      return await fetchProducts({
+      const fetchedProducts = await fetchProducts({
         per_page: 10,
         category: categoryId,
         orderby: query?.orderby,
         order: query?.order,
         featured: query?.featured,
-        on_sale: query?.on_sale,
       });
-    } catch {
+      
+      return fetchedProducts;
+    } catch (error) {
+      // Don't log here - errors are already logged by the interceptor
+      // Only log in development if it's a non-response error
+      if (process.env.NODE_ENV === 'development' && !(error as any)?.response) {
+        console.error(`[ProductSection: ${title}] Network error:`, error);
+      }
       return [] as Awaited<ReturnType<typeof fetchProducts>>;
     }
   })();
 
   return (
-    <section className="mb-16">
-      <div className={`mx-auto w-[85vw] px-4 sm:px-6 lg:px-8 py-6`}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
-          <Link href={viewAllHref} className="text-sm font-medium text-blue-600 hover:text-blue-700">
-            View all
-          </Link>
-        </div>
-        {subtitle && <p className="mb-6 text-sm text-gray-600">{subtitle}</p>}
-
-        {(!products || products.length === 0) ? (
-          <div className="rounded-lg bg-white p-8 text-center text-gray-600">No products found.</div>
-        ) : (
-          <ProductsSlider products={products} />
-        )}
-      </div>
-    </section>
+    <ProductSectionWrapper title={title} subtitle={subtitle} viewAllHref={viewAllHref} products={products} />
   );
 }
 

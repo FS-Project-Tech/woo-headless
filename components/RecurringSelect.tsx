@@ -1,26 +1,48 @@
 "use client";
 
-import { useState } from "react";
-
 export type RecurringPlan = "none" | "7" | "14" | "30";
 
-export default function RecurringSelect({ onChange }: { onChange?: (plan: RecurringPlan) => void }) {
-	const [plan, setPlan] = useState<RecurringPlan>("none");
-
-	function set(p: RecurringPlan) {
-		setPlan(p);
-		onChange?.(p);
-	}
-
-	return (
-		<div className="space-y-2">
-			<div className="text-sm font-medium text-gray-900">Delivery frequency</div>
-			<div className="flex flex-wrap gap-2">
-				<button onClick={() => set("none")} className={`rounded-full border px-3 py-1 text-sm ${plan === "none" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300 hover:bg-gray-50"}`}>One-time</button>
-				<button onClick={() => set("7")} className={`rounded-full border px-3 py-1 text-sm ${plan === "7" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300 hover:bg-gray-50"}`}>Every 7 days</button>
-				<button onClick={() => set("14")} className={`rounded-full border px-3 py-1 text-sm ${plan === "14" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300 hover:bg-gray-50"}`}>Every 14 days</button>
-				<button onClick={() => set("30")} className={`rounded-full border px-3 py-1 text-sm ${plan === "30" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300 hover:bg-gray-50"}`}>Every month</button>
-			</div>
-		</div>
-	);
+interface RecurringSelectProps {
+  onChange: (plan: RecurringPlan) => void;
+  value?: RecurringPlan;
 }
+
+export default function RecurringSelect({
+  onChange,
+  value = "none",
+}: RecurringSelectProps) {
+  const plans: Array<{ value: RecurringPlan; label: string; description: string }> = [
+    { value: "none", label: "One-time delivery", description: "Single purchase" },
+    { value: "7", label: "Every 7 days", description: "Weekly subscription" },
+    { value: "14", label: "Every 14 days", description: "Bi-weekly subscription" },
+    { value: "30", label: "Every month", description: "Monthly subscription" },
+  ];
+
+  return (
+    <div className="space-y-2" suppressHydrationWarning>
+      <label className="block text-sm font-medium text-gray-700">
+        Delivery Plan
+      </label>
+      <div className="flex flex-wrap gap-2">
+        {plans.map((plan) => {
+          const isSelected = value === plan.value;
+          return (
+            <button
+              key={plan.value}
+              type="button"
+              onClick={() => onChange(plan.value)}
+              className={`rounded-md border px-4 py-2 text-sm font-medium transition-all ${
+                isSelected
+                  ? "border-black bg-black text-white"
+                  : "border-black bg-transparent text-black hover:bg-gray-50"
+              }`}
+            >
+              {plan.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+

@@ -34,8 +34,8 @@ const defaultUpdates: Update[] = [
     id: 3,
     title: "Special Promotion",
     description: "Limited time offer! Get 20% off on all bulk orders. Minimum purchase of $500 required.",
-    link: "/shop?on_sale=true",
-    linkText: "View Offers",
+    link: "/shop",
+    linkText: "Shop Now",
     type: "promotion",
   },
 ];

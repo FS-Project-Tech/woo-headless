@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { searchIndex, SearchIndexItem } from '@/lib/searchIndex';
-import { addSearchTerm } from '@/lib/history';
+import { addSearchTerm, getRecentSearchTerms } from '@/lib/history';
 
 /**
  * Highlight matched keywords in text
@@ -43,30 +43,79 @@ function highlightMatches(text: string, query: string): React.ReactNode {
 
 export default function SearchBar({ className = '' }: { className?: string }) {
   const router = useRouter();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState<string>(''); // Explicitly type as string to ensure it's never undefined
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<{
     products: SearchIndexItem[];
     categories: SearchIndexItem[];
     brands: SearchIndexItem[];
-  }>({ products: [], categories: [], brands: [] });
+    tags: SearchIndexItem[];
+    skus: SearchIndexItem[];
+  }>({ products: [], categories: [], brands: [], tags: [], skus: [] });
   const [productCount, setProductCount] = useState<number | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [isIndexReady, setIsIndexReady] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [isListening, setIsListening] = useState(false);
+  const [isImageSearch, setIsImageSearch] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Use consistent placeholder text to avoid hydration mismatch
+  // Only update after mount to prevent hydration issues
+  const [placeholderText, setPlaceholderText] = useState('Search products, brands, categories...');
 
   // Mark mounted and initialize search index
   useEffect(() => {
     setMounted(true);
+    
+    // Load recent searches from localStorage
+    if (typeof window !== 'undefined') {
+      setRecentSearches(getRecentSearchTerms());
+    }
+    
+    // Initialize Web Speech API for voice search
+    if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'en-US';
+      
+      recognitionRef.current.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setQuery(transcript);
+        setIsListening(false);
+      };
+      
+      recognitionRef.current.onerror = () => {
+        setIsListening(false);
+      };
+      
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+    }
+    
     searchIndex.initialize().then(() => {
       setIsIndexReady(searchIndex.isReady());
-      setProductCount(searchIndex.getTotalCount());
+      const count = searchIndex.getTotalCount();
+      setProductCount(count);
+      // Update placeholder only after mount and count is available
+      if (count !== null && count > 0) {
+        setPlaceholderText(`Search from ${count.toLocaleString()} products...`);
+      }
+    }).catch(() => {
+      // Silently handle initialization errors - search will fallback to API
+      setIsIndexReady(false);
     });
     
     // Fetch product count from API as fallback
@@ -75,12 +124,11 @@ export default function SearchBar({ className = '' }: { className?: string }) {
       .then(data => {
         if (data.count && data.count > 0) {
           setProductCount(data.count);
+          setPlaceholderText(`Search from ${data.count.toLocaleString()} products...`);
         }
       })
       .catch(() => {});
   }, []);
-  // Note: Do NOT early-return based on `mounted` to keep Hooks order stable.
-
 
   // Debounced search (guarded by mounted)
   useEffect(() => {
@@ -90,8 +138,8 @@ export default function SearchBar({ className = '' }: { className?: string }) {
     }
 
     if (!query.trim() || query.trim().length < 2) {
-      setResults({ products: [], categories: [], brands: [] });
-      setIsOpen(false);
+      setResults({ products: [], categories: [], brands: [], tags: [] });
+      // Keep dropdown open if focused to show recent searches
       return;
     }
 
@@ -104,15 +152,30 @@ export default function SearchBar({ className = '' }: { className?: string }) {
           products: SearchIndexItem[];
           categories: SearchIndexItem[];
           brands: SearchIndexItem[];
+          tags: SearchIndexItem[];
         };
+
+        // Detect multiple SKU search
+        const parseMultipleSKUs = (q: string): string[] => {
+          const skus = q
+            .split(/[,\n\r]+|\s{2,}/)
+            .map(s => s.trim())
+            .filter(s => s.length >= 2 && /^[A-Z0-9_-]+$/i.test(s));
+          return skus.length > 1 ? skus : [];
+        };
+        
+        const multipleSKUs = parseMultipleSKUs(query);
+        const isMultipleSKUSearch = multipleSKUs.length > 1;
+        const searchLimit = isMultipleSKUSearch ? 50 : 30; // Allow more results for multiple SKU search
 
         // Try client-side search first (fastest)
         if (isIndexReady && searchIndex.isReady()) {
-          const allResults = searchIndex.search(query, 30);
+          const allResults = searchIndex.search(query, searchLimit);
           searchResults = {
-            products: allResults.filter(r => r.type === 'product').slice(0, 10),
+            products: allResults.filter(r => r.type === 'product').slice(0, isMultipleSKUSearch ? 50 : 10),
             categories: allResults.filter(r => r.type === 'category').slice(0, 8),
             brands: allResults.filter(r => r.type === 'brand').slice(0, 8),
+            tags: allResults.filter(r => r.type === 'tag').slice(0, 8),
           };
         } else {
           // Fallback to API search
@@ -137,16 +200,17 @@ export default function SearchBar({ className = '' }: { className?: string }) {
               searchableText: '',
               tokens: [],
             })),
-            categories: (data.categories || []).map((c: any) => ({
+            categories: (data.categories || []).slice(0, 5).map((c: any) => ({
               key: `category_${c.id}`,
               id: c.id,
               type: 'category' as const,
               name: c.name,
               slug: c.slug,
+              image: c.image || c.logo || c.thumbnail, // Support ACF image/logo
               searchableText: '',
               tokens: [],
             })),
-            brands: (data.brands || []).map((b: any) => {
+            brands: (data.brands || []).slice(0, 5).map((b: any) => {
               const id = typeof b.id === 'string' ? parseInt(b.id, 10) || 0 : b.id;
               return {
                 key: `brand_${id}`,
@@ -154,6 +218,19 @@ export default function SearchBar({ className = '' }: { className?: string }) {
                 type: 'brand' as const,
                 name: b.name,
                 slug: b.slug,
+                image: b.image || b.logo, // Support ACF logo
+                searchableText: '',
+                tokens: [],
+              };
+            }),
+            tags: (data.tags || []).map((t: any) => {
+              const id = typeof t.id === 'string' ? parseInt(t.id, 10) || 0 : t.id;
+              return {
+                key: `tag_${id}`,
+                id,
+                type: 'tag' as const,
+                name: t.name,
+                slug: t.slug,
                 searchableText: '',
                 tokens: [],
               };
@@ -164,7 +241,7 @@ export default function SearchBar({ className = '' }: { className?: string }) {
         setResults(searchResults);
       } catch (error) {
         console.error('Search error:', error);
-        setResults({ products: [], categories: [], brands: [] });
+        setResults({ products: [], categories: [], brands: [], tags: [], skus: [] });
       } finally {
         setIsLoading(false);
       }
@@ -215,9 +292,14 @@ export default function SearchBar({ className = '' }: { className?: string }) {
       }
     };
 
+    // Add Matching SKUs group first if it exists
+    if (results.skus && results.skus.length > 0) {
+      addGroup('Matching SKUs', results.skus, (item) => `/products/${item.slug}`);
+    }
     addGroup('Products', results.products, (item) => `/products/${item.slug}`);
     addGroup('Categories', results.categories, (item) => `/product-category/${item.slug}`);
     addGroup('Brands', results.brands, (item) => `/shop?brand=${encodeURIComponent(item.slug)}`);
+    addGroup('Tags', results.tags, (item) => `/shop?tag=${encodeURIComponent(item.slug)}`);
 
     return items;
   }, [results]);
@@ -246,7 +328,7 @@ export default function SearchBar({ className = '' }: { className?: string }) {
       } else if (query.trim()) {
         // Navigate to search results page
         addSearchTerm(query);
-        router.push(`/shop?search=${encodeURIComponent(query)}`);
+        router.push(`/search?query=${encodeURIComponent(query)}`);
         setIsOpen(false);
       }
     } else if (e.key === 'Escape') {
@@ -268,7 +350,7 @@ export default function SearchBar({ className = '' }: { className?: string }) {
     e.preventDefault();
     if (query.trim()) {
       addSearchTerm(query);
-      router.push(`/shop?search=${encodeURIComponent(query)}`);
+      router.push(`/search?query=${encodeURIComponent(query)}`);
       setIsOpen(false);
     }
   };
@@ -280,6 +362,77 @@ export default function SearchBar({ className = '' }: { className?: string }) {
     setQuery('');
   };
 
+  const handleRecentSearchClick = (term: string) => {
+    setQuery(term);
+    addSearchTerm(term);
+    router.push(`/search?query=${encodeURIComponent(term)}`);
+    setIsOpen(false);
+  };
+
+  const handleVoiceSearch = () => {
+    if (!recognitionRef.current) {
+      alert('Voice search is not supported in your browser');
+      return;
+    }
+    
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      setIsListening(true);
+      recognitionRef.current.start();
+    }
+  };
+
+  const handleImageSearch = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Check if it's an image
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file');
+      return;
+    }
+    
+    // Create preview
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      setImagePreview(result);
+      setIsImageSearch(true);
+      
+      // TODO: Implement image search API call
+      // For now, we'll extract text from image using OCR or image recognition
+      // This would typically call an API endpoint that processes the image
+      
+      // You can implement image search by:
+      // 1. Sending image to your backend API
+      // 2. Using image recognition service (Google Vision, AWS Rekognition, etc.)
+      // 3. Extracting text using OCR
+      
+      // Example: Call image search API
+      // fetch('/api/search/image', {
+      //   method: 'POST',
+      //   body: formData
+      // }).then(res => res.json()).then(data => {
+      //   // Handle search results
+      // });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearImageSearch = () => {
+    setImagePreview(null);
+    setIsImageSearch(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const renderProduct = (item: SearchIndexItem) => {
     const price = parseFloat(item.price || '0');
     const regularPrice = parseFloat(item.regularPrice || '0');
@@ -288,7 +441,7 @@ export default function SearchBar({ className = '' }: { className?: string }) {
 
     return (
       <div className="flex items-center gap-3">
-        <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded bg-gray-100">
+        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded bg-gray-100">
           {item.image ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
@@ -329,15 +482,47 @@ export default function SearchBar({ className = '' }: { className?: string }) {
     );
   };
 
-  const hasResults = results.products.length > 0 || results.categories.length > 0 || results.brands.length > 0;
+  const hasResults = results.products.length > 0 || results.categories.length > 0 || results.brands.length > 0 || results.tags.length > 0;
+
+  // Don't render search functionality until mounted to avoid hydration issues
+  if (!mounted) {
+    return (
+      <div className={`relative ${className}`} suppressHydrationWarning>
+        <form className="relative">
+          <div className="flex items-center gap-2 rounded-full border border-gray-300 bg-white px-4 py-2.5 shadow-sm" suppressHydrationWarning>
+            <svg
+              viewBox="0 0 24 24"
+              className="h-5 w-5 shrink-0 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              type="text"
+              value="" // Always controlled, even in SSR
+              placeholder="Search products, brands, categories..."
+              className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
+              disabled={true}
+              readOnly={true}
+            />
+          </div>
+        </form>
+      </div>
+    );
+  }
 
   return (
-    <div className={`relative ${className}`} ref={dropdownRef}>
+    <div className={`relative ${className}`} ref={dropdownRef} suppressHydrationWarning>
       <form onSubmit={handleSubmit} className="relative">
-        <div className="flex items-center gap-2 rounded-full border border-gray-300 bg-white px-4 py-2.5 shadow-sm transition-shadow focus-within:border-blue-500 focus-within:shadow-md">
+        <div className="flex items-center gap-2 rounded-full border border-gray-300 bg-white px-4 py-2.5 shadow-sm transition-shadow focus-within:border-blue-500 focus-within:shadow-md" suppressHydrationWarning>
           <svg
             viewBox="0 0 24 24"
-            className="h-5 w-5 flex-shrink-0 text-gray-400"
+            className="h-5 w-5 shrink-0 text-gray-400"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
@@ -350,25 +535,65 @@ export default function SearchBar({ className = '' }: { className?: string }) {
           <input
             ref={inputRef}
             type="text"
-            value={query}
+            value={query || ''} // Ensure value is always a string, never undefined
             onChange={(e) => {
-              setQuery(e.target.value);
+              setQuery(e.target.value || ''); // Ensure we always set a string
               setHighlightedIndex(-1);
             }}
             onFocus={() => {
-              if (query.trim().length >= 2) setIsOpen(true);
+              setIsOpen(true);
+              // Refresh recent searches when focused
+              if (typeof window !== 'undefined') {
+                setRecentSearches(getRecentSearchTerms());
+              }
             }}
             onKeyDown={handleKeyDown}
-            placeholder={
-              productCount !== null
-                ? `Search from ${productCount.toLocaleString()} products...`
-                : 'Search products, brands, categories...'
-            }
+            placeholder={placeholderText}
             className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
             aria-label="Search products"
             aria-expanded={isOpen}
             aria-haspopup="listbox"
           />
+          {/* Image Search Button */}
+          <button
+            type="button"
+            onClick={handleImageSearch}
+            className="shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Search by image"
+            title="Search by image"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageUpload}
+            className="hidden"
+            aria-label="Upload image for search"
+          />
+          
+          {/* Voice Search Button */}
+          {recognitionRef.current && (
+            <button
+              type="button"
+              onClick={handleVoiceSearch}
+              className={`shrink-0 transition-colors ${
+                isListening 
+                  ? 'text-red-500 animate-pulse' 
+                  : 'text-gray-400 hover:text-gray-600'
+              }`}
+              aria-label="Voice search"
+              title="Voice search"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            </button>
+          )}
+          
           {query && (
             <button
               type="button"
@@ -377,7 +602,7 @@ export default function SearchBar({ className = '' }: { className?: string }) {
                 setIsOpen(false);
                 inputRef.current?.focus();
               }}
-              className="flex-shrink-0 text-gray-400 hover:text-gray-600"
+              className="shrink-0 text-gray-400 hover:text-gray-600"
               aria-label="Clear search"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -385,12 +610,6 @@ export default function SearchBar({ className = '' }: { className?: string }) {
               </svg>
             </button>
           )}
-          <button
-            type="submit"
-            className="hidden md:flex items-center rounded-full bg-gray-900 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-black"
-          >
-            Search
-          </button>
         </div>
       </form>
 
@@ -408,6 +627,68 @@ export default function SearchBar({ className = '' }: { className?: string }) {
               className="max-h-96 overflow-auto"
               role="listbox"
             >
+              {/* Image Preview */}
+              {imagePreview && (
+                <li className="border-b border-gray-100 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded bg-gray-100">
+                      <img src={imagePreview} alt="Search preview" className="h-full w-full object-cover" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">Image search</p>
+                      <p className="text-xs text-gray-500">Processing image...</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearImageSearch}
+                      className="shrink-0 text-gray-400 hover:text-gray-600"
+                      aria-label="Remove image"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </li>
+              )}
+              
+              {/* Voice Search Indicator */}
+              {isListening && (
+                <li className="border-b border-gray-100 bg-blue-50 px-4 py-3">
+                  <div className="flex items-center gap-2 text-blue-600">
+                    <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse"></div>
+                    <span className="text-sm font-medium">Listening...</span>
+                  </div>
+                </li>
+              )}
+
+              {/* Recent Searches - Show when no query or query is too short */}
+              {!isLoading && !query.trim() && recentSearches.length > 0 && (
+                <>
+                  <li className="border-b border-gray-100 bg-gray-50/50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Recent Searches
+                  </li>
+                  {recentSearches.slice(0, 5).map((term, idx) => (
+                    <li
+                      key={`recent-${idx}`}
+                      className="cursor-pointer px-4 py-2.5 transition-colors hover:bg-gray-50"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleRecentSearchClick(term);
+                      }}
+                      role="option"
+                    >
+                      <div className="flex items-center gap-2">
+                        <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-sm text-gray-700">{term}</span>
+                      </div>
+                    </li>
+                  ))}
+                </>
+              )}
+
               {isLoading && (
                 <li className="px-4 py-8 text-center text-sm text-gray-500">
                   <div className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900"></div>
@@ -419,6 +700,30 @@ export default function SearchBar({ className = '' }: { className?: string }) {
                 <li className="px-4 py-8 text-center text-sm text-gray-500">
                   <p className="font-medium">No results found</p>
                   <p className="mt-1 text-xs">Try a different search term</p>
+                </li>
+              )}
+
+              {/* Multiple SKU Search Indicator */}
+              {!isLoading && hasResults && (() => {
+                const multipleSKUs = query
+                  .split(/[,\n\r]+|\s{2,}/)
+                  .map(s => s.trim())
+                  .filter(s => s.length >= 2 && /^[A-Z0-9_-]+$/i.test(s));
+                return multipleSKUs.length > 1;
+              })() && (
+                <li className="border-b border-gray-100 bg-blue-50/50 px-4 py-2 text-xs text-blue-700">
+                  <div className="flex items-center gap-2">
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span>Searching multiple SKUs: {(() => {
+                      const skus = query
+                        .split(/[,\n\r]+|\s{2,}/)
+                        .map(s => s.trim())
+                        .filter(s => s.length >= 2 && /^[A-Z0-9_-]+$/i.test(s));
+                      return skus.slice(0, 3).join(', ') + (skus.length > 3 ? ` +${skus.length - 3} more` : '');
+                    })()}</span>
+                  </div>
                 </li>
               )}
 
@@ -455,6 +760,34 @@ export default function SearchBar({ className = '' }: { className?: string }) {
                       >
                         {row.item?.type === 'product' ? (
                           renderProduct(row.item)
+                        ) : row.item?.type === 'brand' || row.item?.type === 'category' ? (
+                          <div className="flex items-center gap-3">
+                            {row.item.image && (
+                              <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded bg-gray-100">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img 
+                                  src={row.item.image} 
+                                  alt={row.item.name} 
+                                  className="h-full w-full object-cover"
+                                  onError={(e) => {
+                                    // Hide image on error
+                                    (e.target as HTMLImageElement).style.display = 'none';
+                                  }}
+                                />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <span className="font-medium text-gray-900">
+                                {highlightMatches(row.label, query)}
+                              </span>
+                              {row.item.type === 'brand' && (
+                                <p className="text-xs text-gray-500 mt-0.5">Brand</p>
+                              )}
+                              {row.item.type === 'category' && (
+                                <p className="text-xs text-gray-500 mt-0.5">Category</p>
+                              )}
+                            </div>
+                          </div>
                         ) : (
                           <div className="flex items-center gap-2">
                             <span className="text-gray-400">•</span>
@@ -474,7 +807,7 @@ export default function SearchBar({ className = '' }: { className?: string }) {
                         e.preventDefault();
                         if (query.trim()) {
                           addSearchTerm(query);
-                          router.push(`/shop?search=${encodeURIComponent(query)}`);
+                          router.push(`/search?query=${encodeURIComponent(query)}`);
                           setIsOpen(false);
                         }
                       }}

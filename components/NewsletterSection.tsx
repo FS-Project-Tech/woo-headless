@@ -1,72 +1,80 @@
 "use client";
 
-import { useState } from "react";
-import { useToast } from "@/components/ToastProvider";
+import { useState } from 'react';
+import { useToast } from '@/components/ToastProvider';
 
 export default function NewsletterSection() {
-  const { success, error } = useToast();
-  const [email, setEmail] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [email, setEmail] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { success, error: showError } = useToast();
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = email.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      error("Please enter a valid email");
+    if (!email || !email.includes('@')) {
+      showError('Please enter a valid email address');
       return;
     }
-    setSubmitting(true);
+
+    setIsSubmitting(true);
     try {
-      const res = await fetch("/api/newsletter/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: trimmed }),
+      const response = await fetch('/api/newsletter/subscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
       });
-      if (!res.ok) throw new Error("Subscribe failed");
-      success("Subscribed! Check your inbox soon.");
-      setEmail("");
-    } catch {
-      error("Unable to subscribe right now");
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to subscribe');
+      }
+
+      success('Successfully subscribed to newsletter!');
+      setEmail('');
+    } catch (err: any) {
+      showError(err.message || 'Failed to subscribe. Please try again.');
     } finally {
-      setSubmitting(false);
+      setIsSubmitting(false);
     }
   };
 
   return (
     <section className="mt-10">
       <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-sky-50 to-blue-50 p-6 sm:p-8">
-          <div className="max-w-3xl">
-            <h2 className="text-2xl font-semibold text-gray-900">Stay in the loop</h2>
-            <p className="mt-1 text-sm text-gray-600">Get product updates, deals, and helpful tips in your inbox.</p>
-            <form onSubmit={onSubmit} className="mt-4 flex w-full max-w-xl items-center gap-2 rounded-full border bg-white px-3 py-2">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 4h16v16H4z" />
-                <path d="m22 6-10 7L2 6" />
-              </svg>
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-teal-600 to-blue-600 p-8 md:p-12">
+          <div className="max-w-3xl mx-auto text-center">
+            <h2 className="text-2xl md:text-3xl font-bold text-white mb-3">
+              Stay Updated
+            </h2>
+            <p className="text-teal-100 mb-6 text-lg">
+              Subscribe to our newsletter for the latest products, deals, and updates.
+            </p>
+            <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter your email"
-                className="w-full outline-none"
-                aria-label="Email address"
+                className="flex-1 px-4 py-3 rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-white text-gray-900"
+                required
+                disabled={isSubmitting}
               />
               <button
                 type="submit"
-                disabled={submitting}
-                className="inline-flex items-center rounded-full bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-black disabled:opacity-60"
+                disabled={isSubmitting}
+                className="px-6 py-3 bg-white text-teal-600 font-semibold rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {submitting ? "Subscribing…" : "Subscribe"}
+                {isSubmitting ? 'Subscribing...' : 'Subscribe'}
               </button>
             </form>
-            <p className="mt-2 text-xs text-gray-500">By subscribing, you agree to our terms and privacy policy.</p>
           </div>
-          <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-blue-400/10" />
+          <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10" />
+          <div className="pointer-events-none absolute -left-10 -bottom-10 h-32 w-32 rounded-full bg-white/10" />
         </div>
       </div>
     </section>
   );
 }
-
 

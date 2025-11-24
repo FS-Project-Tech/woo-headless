@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 
 export default function MiniProductCard({
   id,
@@ -24,9 +25,14 @@ export default function MiniProductCard({
   return (
     <Link href={`/products/${slug}`} className="group block h-full rounded-lg border border-gray-200 bg-white p-2 hover:shadow-sm">
       <div className="relative aspect-square w-full overflow-hidden rounded-md bg-gray-100">
-        {imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={imageUrl} alt={imageAlt || name} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />
+        {imageUrl && imageUrl.trim() !== '' ? (
+          <Image 
+            src={imageUrl} 
+            alt={imageAlt || name} 
+            fill
+            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 20vw"
+            className="object-cover transition-transform group-hover:scale-[1.02]" 
+          />
         ) : (
           <div className="grid h-full w-full place-items-center text-xs text-gray-400">No Image</div>
         )}

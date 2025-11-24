@@ -38,10 +38,10 @@ export default function ProductsSlider({ products }: { products: P[] }) {
 	// During SSR/first client paint, render a static placeholder to avoid hydration mismatches
 	if (!mounted) {
 		return (
-			<div className="relative">
-				<div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-6">
+			<div className="relative" suppressHydrationWarning>
+				<div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-6" suppressHydrationWarning>
 					{products.slice(0, 6).map((p) => (
-						<div key={p.id} className="h-full">
+						<div key={p.id} className="h-full" suppressHydrationWarning>
 							<ProductCard
 								id={p.id}
 								slug={p.slug}
@@ -67,9 +67,9 @@ export default function ProductsSlider({ products }: { products: P[] }) {
 	// On mobile, render static grid instead of Swiper
 	if (mounted && isMobile) {
 		return (
-			<div className="grid grid-cols-2 gap-3">
+			<div className="grid grid-cols-2 gap-3" suppressHydrationWarning>
 				{products.map((p) => (
-					<div key={p.id} className="h-full">
+					<div key={p.id} className="h-full" suppressHydrationWarning>
 						<ProductCard
 							id={p.id}
 							slug={p.slug}
@@ -92,7 +92,7 @@ export default function ProductsSlider({ products }: { products: P[] }) {
 	}
 
 	return (
-		<div className="relative -mx-4 w-screen sm:mx-0 sm:w-auto">
+		<div className="relative -mx-4 w-screen sm:mx-0 sm:w-auto" suppressHydrationWarning>
 			<Swiper
 				modules={[Navigation]}
 				navigation
@@ -107,7 +107,7 @@ export default function ProductsSlider({ products }: { products: P[] }) {
 			>
 				{products.map((p) => (
 					<SwiperSlide key={p.id} style={{ height: "100%" }}>
-						<div className="h-full">
+						<div className="h-full" suppressHydrationWarning>
 							<ProductCard
 								id={p.id}
 								slug={p.slug}

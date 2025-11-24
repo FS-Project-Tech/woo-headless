@@ -2,7 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type MouseEvent } from "react";
+import { useCart } from "@/components/CartProvider";
+import { useToast } from "@/components/ToastProvider";
 import { useWishlist } from "@/components/WishlistProvider";
 
 export interface ProductCardProps {
@@ -24,15 +26,18 @@ export interface ProductCardProps {
 
 export default function ProductCard(props: ProductCardProps) {
 	const { isInWishlist, addToWishlist, removeFromWishlist } = useWishlist();
+	const { addItem, open: openCart } = useCart();
+	const { success, error: showError } = useToast();
 	const [wishlisted, setWishlisted] = useState<boolean>(false);
 	const [wishlistLoading, setWishlistLoading] = useState(false);
+	const [addingToCart, setAddingToCart] = useState(false);
 
 	// Check if product is in wishlist on mount and when wishlist changes
 	useEffect(() => {
 		setWishlisted(isInWishlist(props.id));
 	}, [isInWishlist, props.id]);
 
-	const handleWishlistToggle = async (e: React.MouseEvent) => {
+	const handleWishlistToggle = async (e: MouseEvent<HTMLButtonElement>) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (wishlistLoading) return;
@@ -53,13 +58,41 @@ export default function ProductCard(props: ProductCardProps) {
 		}
 	};
 
+	const handleAddToCart = async () => {
+		if (addingToCart) return;
+
+		setAddingToCart(true);
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 250));
+
+			addItem({
+				productId: props.id,
+				name: props.name,
+				slug: props.slug,
+				imageUrl: props.imageUrl,
+				price: props.sale_price || props.price || "0",
+				qty: 1,
+				sku: props.sku || undefined,
+			});
+
+			openCart();
+			success("Product added to cart");
+		} catch (error) {
+			console.error("Error adding to cart:", error);
+			showError("Failed to add product to cart");
+		} finally {
+			setAddingToCart(false);
+		}
+	};
+
 	// minimal subtitle, use SKU or blank to mimic variant line
 	const subtitle = props.sku || "";
+	const productUrl = `/products/${props.slug}`;
 
 	return (
 		<div className="group relative flex h-full min-h-[360px] md:min-h-[420px] flex-col rounded-xl border border-gray-300 bg-white">
 			{/* Image area */}
-			<Link href={`/products/${props.slug}`} className="block overflow-hidden rounded-t-xl">
+			<Link href={productUrl} className="block overflow-hidden rounded-t-xl">
 				<div className="relative aspect-square">
 					{props.imageUrl ? (
 						<Image
@@ -93,7 +126,7 @@ export default function ProductCard(props: ProductCardProps) {
 			<div className="flex flex-1 flex-col space-y-2 px-3 pt-3 pb-3 md:px-4 md:pt-4 md:pb-4">
 				{/* Info block with fixed min-height to align pricing across cards */}
 				<div className="min-h-[72px] md:min-h-[88px]">
-					<Link href={`/products/${props.slug}`} className="line-clamp-2 text-sm md:text-base font-medium text-[#333333]">
+					<Link href={productUrl} className="line-clamp-2 text-sm md:text-base font-medium text-[#333333]">
 						{props.name}
 					</Link>
 					{subtitle && <div className="text-[11px] md:text-xs text-gray-500">SKU: {subtitle}</div>}
@@ -177,12 +210,40 @@ export default function ProductCard(props: ProductCardProps) {
 							);
 						})()}
 					</div>
-					<div className="flex items-center gap-3">
+        </div>
+        <div className="mt-auto flex items-end justify-between gap-3">
+          <div className="flex items-center gap-2">
+						<button
+							onClick={handleAddToCart}
+							disabled={addingToCart}
+							className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[#1f605f] px-4 py-2.5 text-xs md:text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							{addingToCart ? (
+								<>
+									<svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+										<circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+										<path
+											className="opacity-75"
+											fill="currentColor"
+											d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+										></path>
+									</svg>
+									Adding…
+								</>
+							) : (
+								<>
+									<svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+										<path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.5 6h12.2M7 13L5 5m2 14a1 1 0 110-2 1 1 0 010 2zm9 0a1 1 0 110-2 1 1 0 010 2z" />
+									</svg>
+									Add to cart
+								</>
+							)}
+						</button>
 						<button
 							aria-label="Wishlist"
 							onClick={handleWishlistToggle}
 							disabled={wishlistLoading}
-							className={`transition ${wishlisted ? "text-rose-600" : "text-gray-500 hover:text-rose-600"} ${wishlistLoading ? "opacity-50 cursor-not-allowed" : ""}`}
+							className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-gray-200 text-gray-600 transition hover:border-gray-300 hover:text-rose-500 ${wishlistLoading ? "cursor-not-allowed opacity-50" : ""}`}
 							title={wishlisted ? "Remove from wishlist" : "Add to wishlist"}
 						>
 							<svg viewBox="0 0 24 24" className="h-5 w-5" fill={wishlisted ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -190,7 +251,7 @@ export default function ProductCard(props: ProductCardProps) {
 							</svg>
 						</button>
 					</div>
-				</div>
+        </div>
 
 			</div>
 

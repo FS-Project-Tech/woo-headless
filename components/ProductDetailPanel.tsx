@@ -2,13 +2,16 @@
 
 import type { WooCommerceProduct, WooCommerceVariation } from "@/lib/woocommerce";
 import { useMemo, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import VariationSwatches from "@/components/VariationSwatches";
+import ProductVariations from "@/components/ProductVariations";
 import RecurringSelect, { RecurringPlan } from "@/components/RecurringSelect";
 import ServiceFeatures from "@/components/ServiceFeatures";
 import { useCart } from "@/components/CartProvider";
-import { useWishlist } from "@/components/WishlistProvider";
+import { useWishlist } from "@/hooks/useWishlist";
 import { useToast } from "@/components/ToastProvider";
-import { useEffectOnce } from "react-use";
+import { useAuth } from "@/components/AuthProvider";
 
 function pushViewedProduct(productId: number, categoryIds: number[]) {
     try {
@@ -23,8 +26,10 @@ function pushViewedProduct(productId: number, categoryIds: number[]) {
 
 export default function ProductDetailPanel({ product, variations }: { product: WooCommerceProduct; variations: WooCommerceVariation[] }) {
 	const [plan, setPlan] = useState<RecurringPlan>("none");
-const [selected, setSelected] = useState<{ [name: string]: string }>({});
-const matched = useMemo(() => matchVariation(variations, selected), [variations, selected]);
+	const [selected, setSelected] = useState<{ [name: string]: string }>({});
+	const [currentSku, setCurrentSku] = useState<string | null>(product.sku || null);
+	const [matchedVariation, setMatchedVariation] = useState<WooCommerceVariation | null>(null);
+	const matched = useMemo(() => matchVariation(variations, selected), [variations, selected]);
 
 // variable attribute definitions for swatches
 const attributes = useMemo(() => {
@@ -35,21 +40,22 @@ const attributes = useMemo(() => {
 
 	const brand = findBrand(product);
 
-	const displayPrice = matched?.price || product.price;
-	const displayRegular = matched?.regular_price || product.regular_price;
-	const onSale = matched ? matched.on_sale : product.on_sale;
+	const displayPrice = matchedVariation?.price || matched?.price || product.price;
+	const displayRegular = matchedVariation?.regular_price || matched?.regular_price || product.regular_price;
+	const onSale = matchedVariation ? matchedVariation.on_sale : (matched ? matched.on_sale : product.on_sale);
     const { addItem, open: openCart } = useCart();
-    const { isInWishlist, addToWishlist, removeFromWishlist } = useWishlist();
-    const { success } = useToast();
+    const { wishlist, addToWishlist, removeFromWishlist, isAdding, isRemoving } = useWishlist();
+    const { success, error: showError } = useToast();
+    const { user, loading: authLoading } = useAuth();
+    const router = useRouter();
     const [quantity, setQuantity] = useState<number>(1);
     const [wishlisted, setWishlisted] = useState<boolean>(false);
-    const [wishlistLoading, setWishlistLoading] = useState(false);
     const [addingToCart, setAddingToCart] = useState(false);
 
 	// Check if product is in wishlist on mount and when wishlist changes
 	useEffect(() => {
-		setWishlisted(isInWishlist(product.id));
-	}, [isInWishlist, product.id]);
+		setWishlisted(wishlist.includes(product.id));
+	}, [wishlist, product.id]);
 
     // Track viewed product in localStorage
     useEffect(() => {
@@ -58,21 +64,39 @@ const attributes = useMemo(() => {
     }, [product.id, product.categories]);
 
 	const handleWishlistToggle = async () => {
-		if (wishlistLoading) return;
+		if (isAdding || isRemoving) return;
 
-		setWishlistLoading(true);
+		// Check if user is logged in (wait for auth to finish loading)
+		if (authLoading) {
+			return; // Wait for auth to load
+		}
+		if (!user) {
+			showError("Please login to add items to your wishlist");
+			// Use window.location.href instead of router.push to avoid extension interference
+			window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+			return;
+		}
+
 		try {
 			if (wishlisted) {
 				await removeFromWishlist(product.id);
 				setWishlisted(false);
+				success("Product removed from wishlist");
 			} else {
 				await addToWishlist(product.id);
 				setWishlisted(true);
+				success("Product added to wishlist");
 			}
-		} catch (error) {
-			console.error('Wishlist error:', error);
-		} finally {
-			setWishlistLoading(false);
+		} catch (error: any) {
+			// Handle extension interference gracefully
+			if (error?.message?.includes('chrome-extension') ||
+				error?.message?.includes('Failed to fetch')) {
+				showError("Action blocked by browser extension. Please try again.");
+			} else {
+				console.error('Wishlist error:', error);
+				const errorMessage = error?.message || error?.error || "Failed to update wishlist";
+				showError(errorMessage);
+			}
 		}
 	};
 
@@ -81,7 +105,7 @@ const attributes = useMemo(() => {
 			<div>
 				<h1 className="text-3xl font-bold text-gray-900">{product.name}</h1>
 				<div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500">
-					<span>SKU: {product.sku || "N/A"}</span>
+					<span>SKU: {currentSku || product.sku || "N/A"}</span>
 					{brand && <span>Brand: {brand}</span>}
 					{product.categories && product.categories.length > 0 && (
 						<span>Category: {product.categories.map((c) => c.name).join(", ")}</span>
@@ -105,21 +129,21 @@ const attributes = useMemo(() => {
 								const incl = raw * 1.10;
 								return (
 									<div className="space-y-0.5">
-										<div className="text-2xl font-semibold">Incl. GST: ${incl.toFixed(2)}</div>
-										<div className="text-sm text-gray-600">Excl. GST: ${excl.toFixed(2)}</div>
+										<div className="text-2xl font-semibold text-[#1f605f]">Incl. GST: ${incl.toFixed(2)}</div>
+										<div className="text-sm text-[#1f605f]">Excl. GST: ${excl.toFixed(2)}</div>
 									</div>
 								);
 							}
 							if (isGstFree) {
 								return (
 									<div className="space-y-1">
-										<div className="text-2xl font-semibold">${raw.toFixed(2)}</div>
+										<div className="text-2xl font-semibold text-[#1f605f]">${raw.toFixed(2)}</div>
 										<div className="text-[11px] inline-flex items-center rounded bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">GST FREE</div>
 									</div>
 								);
 							}
 						}
-						return <span className="text-2xl font-semibold">${displayPrice}</span>;
+						return <span className="text-2xl font-semibold text-[#1f605f]">${displayPrice}</span>;
 					})()}
 				</div>
 				{/* Regular price and sale badge */}
@@ -133,14 +157,25 @@ const attributes = useMemo(() => {
 
 			{/* Variations as swatches (inline) */}
             {attributes.length > 0 && (
-				<VariationSwatches
+				<ProductVariations
 					attributes={attributes}
-					variations={variations.map((v) => ({ id: v.id, price: v.price, regular_price: v.regular_price, on_sale: v.on_sale, attributes: v.attributes, stock_status: v.stock_status }))}
-					onChange={(sel) => setSelected(sel)}
+					variations={variations}
+					onVariationChange={(variation, selectedAttributes) => {
+						setMatchedVariation(variation);
+						setSelected(selectedAttributes);
+						// Reset SKU to product SKU if no variation matched
+						if (!variation) {
+							setCurrentSku(product.sku || null);
+						}
+					}}
+					onSkuChange={(sku) => {
+						setCurrentSku(sku || product.sku || null);
+					}}
+					style="swatches"
 				/>
 			)}
 
-			<RecurringSelect onChange={setPlan} />
+			<RecurringSelect onChange={setPlan} value={plan} />
 
             {/* Quantity */}
             <div className="flex items-center gap-3">
@@ -154,6 +189,16 @@ const attributes = useMemo(() => {
                 />
             </div>
 
+            {/* Consult Before Buying Button */}
+            <div className="pt-2">
+                <Link
+                    href={`/products/${product.slug}/consult`}
+                    className="block w-full text-center rounded-md border-2 border-[#1f605f] bg-transparent px-4 py-3 text-sm font-medium text-[#1f605f] transition hover:bg-[#1f605f] hover:text-white mb-3"
+                >
+                    Consult Before Buying
+                </Link>
+            </div>
+
             <div className="pt-2 flex items-center gap-3">
 				<button
 					onClick={async () => {
@@ -165,16 +210,16 @@ const attributes = useMemo(() => {
 							// Simulate API call delay (replace with actual cart API call if needed)
 							await new Promise(resolve => setTimeout(resolve, 500));
 
-							const variationId = matched?.id;
+							const variationId = matchedVariation?.id || matched?.id;
 							addItem({
 								productId: product.id,
 								variationId,
 								name: product.name,
 								slug: product.slug,
 								imageUrl: product.images?.[0]?.src,
-								price: (matched?.price || product.price) || "0",
+								price: (matchedVariation?.price || matched?.price || product.price) || "0",
 								qty: quantity,
-								sku: matched?.sku || product.sku || undefined,
+								sku: matchedVariation?.sku || matched?.sku || product.sku || undefined,
 								attributes: selected,
 								deliveryPlan: plan,
 							});
@@ -191,7 +236,7 @@ const attributes = useMemo(() => {
 						}
 					}}
                     disabled={attributes.length > 0 && !isAllSelected(selected, attributes) || addingToCart}
-                    className="flex-1 rounded-md bg-gray-900 px-4 py-3 text-white transition hover:bg-black disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="btn-brand flex-1 rounded-md px-4 py-3 text-white transition disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
 				>
 					{addingToCart ? (
 						<>
@@ -208,8 +253,8 @@ const attributes = useMemo(() => {
                 <button
                     aria-label="Add to wishlist"
                     onClick={handleWishlistToggle}
-                    disabled={wishlistLoading}
-                    className={`rounded p-3 transition ${wishlisted ? "text-rose-600" : "text-gray-600 hover:bg-gray-50"} ${wishlistLoading ? "opacity-50 cursor-not-allowed" : ""}`}
+                    disabled={isAdding || isRemoving}
+                    className={`rounded p-3 transition ${wishlisted ? "text-rose-600" : "text-gray-600 hover:bg-gray-50"} ${isAdding || isRemoving ? "opacity-50 cursor-not-allowed" : ""}`}
                     title={wishlisted ? "Remove from wishlist" : "Add to wishlist"}
                 >
                     <svg viewBox="0 0 24 24" className="h-6 w-6" fill={wishlisted ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

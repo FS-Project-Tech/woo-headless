@@ -1,57 +1,111 @@
 "use client";
 
-import Image from "next/image";
 import { useState } from "react";
+import Image from "next/image";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { Navigation, Thumbs, FreeMode } from "swiper/modules";
+import "swiper/css";
+import "swiper/css/navigation";
+import "swiper/css/thumbs";
+import "swiper/css/free-mode";
 
-export interface ProductGalleryImage {
-	id: number;
-	src: string;
-	alt?: string;
-	name?: string;
+interface ProductImage {
+  id: number;
+  src: string;
+  alt?: string;
+  name?: string;
 }
 
-export default function ProductGallery({ images }: { images: ProductGalleryImage[] }) {
-	const validImages = images?.filter((img) => !!img?.src) ?? [];
-	const [activeIndex, setActiveIndex] = useState(0);
-	const active = validImages[activeIndex] ?? validImages[0];
-
-	return (
-		<div>
-			<div className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100">
-				{active ? (
-					<Image
-						src={active.src}
-						alt={active.alt || active.name || "Product image"}
-						fill
-						sizes="(max-width: 1024px) 100vw, 50vw"
-						className="object-contain p-6"
-						priority
-					/>
-				) : (
-					<div className="absolute inset-0 grid place-items-center text-gray-400">No Image</div>
-				)}
-			</div>
-
-			{validImages.length > 1 && (
-				<div className="mt-4 grid grid-cols-5 gap-3">
-					{validImages.slice(0, 10).map((img, idx) => (
-						<button
-							key={img.id ?? idx}
-							onClick={() => setActiveIndex(idx)}
-							className={`relative aspect-square overflow-hidden rounded border ${idx === activeIndex ? "border-gray-900" : "border-gray-200"}`}
-							aria-label={`Show image ${idx + 1}`}
-						>
-							<Image
-								src={img.src}
-								alt={img.alt || img.name || "Thumbnail"}
-								fill
-								sizes="100px"
-								className="object-cover"
-							/>
-						</button>
-					))}
-				</div>
-			)}
-		</div>
-	);
+interface ProductGalleryProps {
+  images: ProductImage[];
 }
+
+export default function ProductGallery({ images }: ProductGalleryProps) {
+  const [thumbsSwiper, setThumbsSwiper] = useState<any>(null);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // Filter out empty images
+  const validImages = images.filter((img) => img.src && img.src.trim() !== "");
+
+  // Fallback if no images
+  if (validImages.length === 0) {
+    return (
+      <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-100">
+        <div className="flex h-full w-full items-center justify-center text-gray-400">
+          No Image Available
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4" suppressHydrationWarning>
+      {/* Main Image Swiper */}
+      <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <Swiper
+          modules={[Navigation, Thumbs]}
+          navigation
+          thumbs={{ swiper: thumbsSwiper && !thumbsSwiper.destroyed ? thumbsSwiper : null }}
+          onSlideChange={(swiper) => setSelectedIndex(swiper.activeIndex)}
+          className="h-full w-full"
+        >
+          {validImages.map((img, index) => (
+            <SwiperSlide key={img.id || index}>
+              <div className="relative h-full w-full">
+                <Image
+                  src={img.src}
+                  alt={img.alt || img.name || `Product image ${index + 1}`}
+                  fill
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                  className="object-contain"
+                  priority={index === 0}
+                />
+              </div>
+            </SwiperSlide>
+          ))}
+        </Swiper>
+      </div>
+
+      {/* Thumbnail Swiper */}
+      {validImages.length > 1 && (
+        <div className="w-full">
+          <Swiper
+            modules={[Thumbs, FreeMode]}
+            onSwiper={setThumbsSwiper}
+            freeMode
+            watchSlidesProgress
+            slidesPerView={4}
+            spaceBetween={8}
+            breakpoints={{
+              640: { slidesPerView: 5 },
+              768: { slidesPerView: 6 },
+            }}
+            className="!px-0"
+          >
+            {validImages.map((img, index) => (
+              <SwiperSlide
+                key={img.id || index}
+                className={`cursor-pointer rounded-lg border-2 transition-all ${
+                  selectedIndex === index
+                    ? "border-gray-900 opacity-100"
+                    : "border-gray-200 opacity-60 hover:opacity-100"
+                }`}
+              >
+                <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100">
+                  <Image
+                    src={img.src}
+                    alt={img.alt || img.name || `Thumbnail ${index + 1}`}
+                    fill
+                    sizes="(max-width: 768px) 25vw, 12vw"
+                    className="object-cover"
+                  />
+                </div>
+              </SwiperSlide>
+            ))}
+          </Swiper>
+        </div>
+      )}
+    </div>
+  );
+}
+

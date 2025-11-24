@@ -1,4 +1,4 @@
-import Link from "next/link";
+import PrefetchLink from "@/components/PrefetchLink";
 
 function makeHref(basePath: string, query: Record<string, string | undefined>, page: number) {
   const q = new URLSearchParams();
@@ -28,38 +28,41 @@ export default function Pagination({
 
   return (
     <nav className="mt-8 flex items-center justify-center gap-2" aria-label="Pagination">
-      <Link
+      <PrefetchLink
         href={makeHref(basePath, query, Math.max(1, currentPage - 1))}
+        prefetch={currentPage > 1}
         aria-disabled={currentPage === 1}
         className={`rounded border px-3 py-1 text-sm ${currentPage === 1 ? "pointer-events-none opacity-50" : "hover:bg-gray-50"}`}
       >
         Prev
-      </Link>
+      </PrefetchLink>
       {start > 1 && (
-        <Link href={makeHref(basePath, query, 1)} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">1</Link>
+        <PrefetchLink href={makeHref(basePath, query, 1)} prefetch={true} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">1</PrefetchLink>
       )}
       {start > 2 && <span className="px-1 text-gray-500">…</span>}
       {pages.map((p) => (
-        <Link
+        <PrefetchLink
           key={p}
           href={makeHref(basePath, query, p)}
+          prefetch={true}
           aria-current={p === currentPage ? "page" : undefined}
           className={`rounded border px-3 py-1 text-sm ${p === currentPage ? "bg-gray-900 text-white" : "hover:bg-gray-50"}`}
         >
           {p}
-        </Link>
+        </PrefetchLink>
       ))}
       {end < totalPages - 1 && <span className="px-1 text-gray-500">…</span>}
       {end < totalPages && (
-        <Link href={makeHref(basePath, query, totalPages)} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">{totalPages}</Link>
+        <PrefetchLink href={makeHref(basePath, query, totalPages)} prefetch={true} className="rounded border px-3 py-1 text-sm hover:bg-gray-50">{totalPages}</PrefetchLink>
       )}
-      <Link
+      <PrefetchLink
         href={makeHref(basePath, query, Math.min(totalPages, currentPage + 1))}
+        prefetch={currentPage < totalPages}
         aria-disabled={currentPage === totalPages}
         className={`rounded border px-3 py-1 text-sm ${currentPage === totalPages ? "pointer-events-none opacity-50" : "hover:bg-gray-50"}`}
       >
         Next
-      </Link>
+      </PrefetchLink>
     </nav>
   );
 }

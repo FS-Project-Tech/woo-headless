@@ -1,9 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import ProductCard from "@/components/ProductCard";
-import ProductsSlider from "@/components/ProductsSlider";
 import { getRecentSearchTerms } from "@/lib/history";
+
+// Dynamically import ProductsSlider - heavy component with Swiper
+const ProductsSlider = dynamic(() => import("@/components/ProductsSlider"), {
+  loading: () => (
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-6">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="h-[420px] animate-pulse rounded-xl border border-gray-200 bg-white" />
+      ))}
+    </div>
+  ),
+  ssr: false, // Client-side only for Swiper
+});
 
 type UnifiedProduct = {
   id: number;

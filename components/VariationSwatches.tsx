@@ -1,93 +1,92 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
-export interface VariationAttributeDef {
-	name: string; // 'Color'
-	options: string[]; // ['Red','Blue']
+interface VariationAttribute {
+  name: string;
+  options: string[];
 }
 
-export interface VariationInfo {
-	id: number;
-	price: string;
-	regular_price: string;
-	on_sale: boolean;
-	attributes: { name: string; option: string }[];
-	stock_status: string;
+interface Variation {
+  id: number;
+  price: string;
+  regular_price?: string;
+  on_sale?: boolean;
+  attributes: Array<{ name: string; option: string }>;
+  stock_status?: string;
 }
 
-export interface VariationSwatchesProps {
-	attributes: VariationAttributeDef[];
-	variations: VariationInfo[];
-	onChange?: (selected: { [name: string]: string }, matched?: VariationInfo | null) => void;
+interface VariationSwatchesProps {
+  attributes: VariationAttribute[];
+  variations: Variation[];
+  selected?: { [name: string]: string };
+  onChange: (selected: { [name: string]: string }) => void;
 }
 
-export default function VariationSwatches({ attributes, variations, onChange }: VariationSwatchesProps) {
-	const [selected, setSelected] = useState<{ [name: string]: string }>({});
+export default function VariationSwatches({
+  attributes,
+  variations,
+  selected = {},
+  onChange,
+}: VariationSwatchesProps) {
+  const handleAttributeChange = (attributeName: string, option: string) => {
+    onChange({
+      ...selected,
+      [attributeName]: option,
+    });
+  };
 
-	const matched = useMemo(() => {
-		const names = Object.keys(selected);
-		if (names.length === 0) return null;
-		return (
-			variations.find((v) =>
-				names.every((n) => v.attributes.some((a) => eq(a.name, n) && eq(a.option, selected[n])))
-			) || null
-		);
-	}, [selected, variations]);
+  // Get available options for each attribute based on variations
+  const getAvailableOptions = (attributeName: string) => {
+    const allOptions = new Set<string>();
+    variations.forEach((variation) => {
+      const attr = variation.attributes.find((a) => a.name === attributeName);
+      if (attr && variation.stock_status !== "outofstock") {
+        allOptions.add(attr.option);
+      }
+    });
+    return Array.from(allOptions);
+  };
 
-    function toggle(name: string, option: string) {
-        setSelected((prev) => {
-            const next = { ...prev, [name]: prev[name] === option ? "" : option };
-            if (next[name] === "") delete next[name];
-            return next;
-        });
-    }
-
-    // Notify parent when selection changes (after render)
-    useEffect(() => {
-        onChange?.(selected, matched);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [JSON.stringify(selected), matched?.id]);
-
-	return (
-		<div className="space-y-4">
-			{attributes.map((attr) => (
-				<div key={attr.name}>
-					<div className="mb-2 text-sm font-medium text-gray-900">{attr.name}</div>
-					<div className="flex flex-wrap gap-2">
-						{uniq(attr.options).map((opt) => {
-							const active = selected[attr.name] === opt;
-							return (
-								<button
-									key={opt}
-									onClick={() => toggle(attr.name, opt)}
-									className={`rounded-full border px-3 py-1 text-sm transition ${active ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300 text-gray-800 hover:bg-gray-50"}`}
-								>
-									{opt}
-								</button>
-							);
-						})}
-					</div>
-				</div>
-			))}
-
-			{/* Price preview */}
-			{matched && (
-				<div className="text-sm text-gray-600">
-					Selected variation price: <span className="font-semibold text-gray-900">${matched.price}</span>
-					{matched.on_sale && matched.regular_price && matched.regular_price !== matched.price && (
-						<span className="ml-2 line-through">${matched.regular_price}</span>
-					)}
-				</div>
-			)}
-		</div>
-	);
+  return (
+    <div className="space-y-4" suppressHydrationWarning>
+      {attributes.map((attribute) => {
+        const availableOptions = getAvailableOptions(attribute.name);
+        const isSelected = (option: string) => selected[attribute.name] === option;
+        
+        return (
+          <div key={attribute.name}>
+            <label className="mb-2 block text-sm font-medium text-gray-700">
+              {attribute.name}
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {availableOptions.length > 0 ? (
+                availableOptions.map((option) => {
+                  const selectedOption = isSelected(option);
+                  
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => handleAttributeChange(attribute.name, option)}
+                      className={`rounded-md border px-4 py-2 text-sm font-medium transition-all ${
+                        selectedOption
+                          ? "border-black bg-black text-white"
+                          : "border-black bg-transparent text-black hover:bg-gray-50"
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-gray-500">No options available</p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
-function eq(a?: string, b?: string) {
-	return (a || "").toLowerCase() === (b || "").toLowerCase();
-}
-
-function uniq(list: string[]) {
-	return Array.from(new Set(list.filter(Boolean)));
-}
