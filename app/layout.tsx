@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import dynamic from "next/dynamic";
+import Script from "next/script";
 import Header from "@/components/Header";
 import CartProvider from "@/components/CartProvider";
 import ToastProvider from "@/components/ToastProvider";
 import QueryProvider from "@/components/QueryProvider";
 import { AuthProvider } from "@/components/AuthProvider";
+import WishlistProvider from "@/components/WishlistProvider";
 import { CouponProvider } from "@/components/CouponProvider";
 import CategoriesNav from "@/components/CategoriesNav";
 import Footer from "@/components/Footer";
@@ -109,25 +111,32 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        {/* Remove browser extension attributes before React hydrates */}
+        <Script
+          src="/remove-extension-attributes.js"
+          strategy="beforeInteractive"
+        />
         <AnalyticsInitializer />
         <QueryProvider>
           <ToastProvider>
             <AuthProvider>
-              <CartProvider>
-                <CouponProvider>
-                  <Header />
-                  <CategoriesNav />
-                  <main suppressHydrationWarning>
-                    <div className="mx-auto w-full px-4 sm:px-6 md:w-[85vw] pb-16 md:pb-0" suppressHydrationWarning>
-                      {children}
-                    </div>
-                  </main>
-                  <Footer />
-                  <MiniCartDrawer />
-                  <BottomNav />
-                  <PWARegister />
-                </CouponProvider>
-              </CartProvider>
+              <WishlistProvider>
+                <CartProvider>
+                  <CouponProvider>
+                    <Header />
+                    <CategoriesNav />
+                    <main suppressHydrationWarning>
+                      <div className="mx-auto w-full px-4 sm:px-6 md:w-[85vw] pb-16 md:pb-0" suppressHydrationWarning>
+                        {children}
+                      </div>
+                    </main>
+                    <Footer />
+                    <MiniCartDrawer />
+                    <BottomNav />
+                    <PWARegister />
+                  </CouponProvider>
+                </CartProvider>
+              </WishlistProvider>
             </AuthProvider>
           </ToastProvider>
         </QueryProvider>

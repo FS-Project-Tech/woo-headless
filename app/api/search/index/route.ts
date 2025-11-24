@@ -1,23 +1,9 @@
 import { NextResponse } from "next/server";
 import wcAPI from "@/lib/woocommerce";
 
-// Server-side cache for index data
-const INDEX_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
-let cachedIndex: any = null;
-let cacheTimestamp = 0;
-
 export async function GET() {
   try {
     const now = Date.now();
-    
-    // Serve from cache if fresh
-    if (cachedIndex && (now - cacheTimestamp) < INDEX_CACHE_TTL) {
-      return NextResponse.json(cachedIndex, {
-        headers: {
-          'Cache-Control': 'public, max-age=86400', // 24 hours
-        },
-      });
-    }
     
     // Fetch products (lightweight fields only)
     const productsRes = await wcAPI.get('/products', {
@@ -71,8 +57,11 @@ export async function GET() {
           } else {
             break;
           }
-        } catch (err) {
-          console.error(`Error fetching products page ${page}:`, err);
+        } catch (err: any) {
+          // Only log non-timeout errors
+          if (err?.code !== 'ECONNABORTED' && err?.code !== 'ETIMEDOUT' && !err?.message?.toLowerCase().includes('timeout')) {
+            console.error(`Error fetching products page ${page}:`, err);
+          }
           break;
         }
       }
@@ -195,17 +184,12 @@ export async function GET() {
       totalProducts: products.length,
     };
     
-    // Update cache
-    cachedIndex = indexData;
-    cacheTimestamp = now;
-    
-    return NextResponse.json(indexData, {
-      headers: {
-        'Cache-Control': 'public, max-age=86400', // 24 hours
-      },
-    });
+    return NextResponse.json(indexData);
   } catch (error: any) {
-    console.error('Error building search index:', error);
+    // Only log non-timeout errors (timeouts are handled gracefully)
+    if (error?.code !== 'ECONNABORTED' && error?.code !== 'ETIMEDOUT' && !error?.message?.toLowerCase().includes('timeout')) {
+      console.error('Error building search index:', error);
+    }
     return NextResponse.json(
       {
         products: [],

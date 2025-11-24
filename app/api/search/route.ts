@@ -370,7 +370,7 @@ export async function GET(req: Request) {
               
               clearTimeout(timeoutId);
               
-              if (acfRes.ok) {
+              if (acfRes.ok && acfRes.body) {
                 const acfData = await acfRes.json();
                 if (acfData.acf) {
                   return {

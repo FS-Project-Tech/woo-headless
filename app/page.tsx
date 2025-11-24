@@ -40,7 +40,6 @@ import MedicalBackgroundPattern from "@/components/MedicalBackgroundPattern";
 import AnimatedSection from "@/components/AnimatedSection";
 import HomePageClient from "@/components/HomePageClient";
 
-export const revalidate = 300; // Revalidate every 5 minutes (reduced frequency)
 
 export default async function Home({
   searchParams,
@@ -144,7 +143,7 @@ export default async function Home({
           <div className="max-w-xl">
             <h3 className="text-2xl font-bold text-white">Save more with bundles</h3>
             <p className="mt-2 text-gray-200">Mix-and-match essentials and get extra discounts at checkout.</p>
-            <Link href="/shop?on_sale=true" className="mt-4 inline-flex rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-100">Shop deals</Link>
+            <Link href="/shop" className="mt-4 inline-flex rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-100">Shop Now</Link>
           </div>
           <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10" />
         </div>
@@ -157,16 +156,6 @@ export default async function Home({
           viewAllHref="/shop?orderby=date&order=desc"
           bgClassName="bg-sky-50"
           query={{ orderby: "date", order: "desc" }}
-        />
-      </Suspense>
-
-      <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded" />}>
-        <ProductSection
-          title="Clearance Products"
-          subtitle="Last-chance items at exceptional prices. Limited stock."
-          viewAllHref="/shop?on_sale=true"
-          bgClassName="bg-amber-50"
-          query={{ on_sale: true }}
         />
       </Suspense>
 

@@ -7,6 +7,58 @@ import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import ProductCard from '@/components/ProductCard';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import { ProductStructuredData, BreadcrumbStructuredData } from '@/components/StructuredData';
+import type { Metadata } from 'next';
+
+
+
+// Generate metadata for SEO
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+	const { slug } = await params;
+	const product = await fetchProductBySlug(slug).catch(() => null);
+	
+	if (!product) {
+		return {
+			title: 'Product Not Found',
+		};
+	}
+
+	const price = product.on_sale && product.sale_price 
+		? product.sale_price 
+		: product.price || product.regular_price;
+	
+	const imageUrl = product.images?.[0]?.src || '';
+	const description = product.short_description 
+		? product.short_description.replace(/<[^>]*>/g, '').substring(0, 160)
+		: `${product.name} - ${product.price ? `$${price}` : 'View product details'}`;
+
+	return {
+		title: `${product.name} | WooCommerce Store`,
+		description: description,
+		openGraph: {
+			title: product.name,
+			description: description,
+			images: imageUrl ? [
+				{
+					url: imageUrl,
+					width: 1200,
+					height: 1200,
+					alt: product.images?.[0]?.alt || product.name,
+				}
+			] : [],
+			type: 'website',
+		},
+		twitter: {
+			card: 'summary_large_image',
+			title: product.name,
+			description: description,
+			images: imageUrl ? [imageUrl] : [],
+		},
+		alternates: {
+			canonical: `/products/${slug}`,
+		},
+	};
+}
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
 	const { slug } = await params;
@@ -28,9 +80,14 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 		}
 	})();
 
+	// Calculate price for structured data
+	const price = product.on_sale && product.sale_price 
+		? product.sale_price 
+		: product.price || product.regular_price;
+
 	// Related products by first category
 	const firstCategoryId = product.categories?.[0]?.id;
-	const [topSelling, similar, onSale] = await Promise.all([
+	const [topSelling, similar] = await Promise.all([
 		(async () => {
 			if (!firstCategoryId) return [] as Awaited<ReturnType<typeof fetchProducts>>;
 			// Try popularity first, fallback to date if popularity fails
@@ -58,20 +115,28 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 				return []; 
 			}
 		})(),
-		(async () => {
-			if (!firstCategoryId) return [] as Awaited<ReturnType<typeof fetchProducts>>;
-			try { return await fetchProducts({ per_page: 6, category: firstCategoryId, on_sale: true }); } catch (error) { 
-				console.error('Error fetching on sale products:', error);
-				return []; 
-			}
-		})(),
 	]);
 
+	// Breadcrumb items for structured data
+	const breadcrumbItems = [
+		{ label: 'Home', href: '/' },
+		{ label: 'Shop', href: '/shop' },
+		...(product.categories?.[0] 
+			? [{ label: product.categories[0].name, href: `/product-category/${product.categories[0].slug}` }] 
+			: []),
+		{ label: product.name },
+	];
+
 	return (
-		<div className="min-h-screen py-12">
-			<div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
-				<Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'Shop', href: '/shop' }, ...(product.categories?.[0] ? [{ label: product.categories[0].name, href: `/product-category/${product.categories[0].slug}` }] : []), { label: product.name }]} />
-			</div>
+		<>
+			{/* Structured Data for SEO */}
+			<ProductStructuredData product={product} />
+			<BreadcrumbStructuredData items={breadcrumbItems} />
+			
+			<div className="min-h-screen py-12">
+				<div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
+					<Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'Shop', href: '/shop' }, ...(product.categories?.[0] ? [{ label: product.categories[0].name, href: `/product-category/${product.categories[0].slug}` }] : []), { label: product.name }]} />
+				</div>
 			<div className="mx-auto w-[85vw] grid grid-cols-1 gap-6 px-4 sm:px-6 lg:grid-cols-5 lg:gap-10 lg:px-8">
 				{/* Left: Gallery (40%) */}
 				<div className="lg:col-span-2">
@@ -170,25 +235,10 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 						)}
 					</section>
 
-					{/* On sale in same category */}
-					<section>
-						<div className="mb-4 flex items-center justify-between">
-							<h3 className="text-lg font-semibold text-gray-900">On sale in this category</h3>
-							<a href={`/shop?category=${encodeURIComponent(firstCategoryId)}&on_sale=true`} className="text-sm font-medium text-blue-600 hover:text-blue-700">View all</a>
-						</div>
-						{onSale.length > 0 ? (
-							<div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-								{onSale.map((p) => (
-									<ProductCard key={p.id} id={p.id} slug={p.slug} name={p.name} sku={p.sku} price={p.price} sale_price={p.sale_price} regular_price={p.regular_price} on_sale={p.on_sale} tax_class={p.tax_class} average_rating={p.average_rating} rating_count={p.rating_count} imageUrl={p.images?.[0]?.src} imageAlt={p.images?.[0]?.alt || p.name} />
-								))}
-							</div>
-						) : (
-							<div className="text-sm text-gray-600">No products found.</div>
-						)}
-					</section>
 				</div>
 			)}
 		</div>
+		</>
 	);
 }
 

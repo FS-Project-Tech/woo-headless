@@ -5,6 +5,12 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Primary brand tokens */
+  --primary: #1f605f;
+  --primary-muted: #d1eaea;
+  --primary-dark: #164948;
+  --primary-foreground: #f4fbfb;
 }
 
 @theme inline {
@@ -13,17 +19,20 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   
-  /* Teal color overrides using hex values to avoid lab() color function issues */
-  --color-teal-50: #f0fdfa;
-  --color-teal-100: #ccfbf1;
-  --color-teal-200: #99f6e4;
-  --color-teal-300: #5eead4;
-  --color-teal-400: #2dd4bf;
-  --color-teal-500: #14b8a6;
-  --color-teal-600: #0d9488;
-  --color-teal-700: #0f766e;
-  --color-teal-800: #115e59;
-  --color-teal-900: #134e4a;
+  /* Brand color: #1f605f - Base color palette */
+  --color-teal-50: #f0f9f9;
+  --color-teal-100: #d1eaea;
+  --color-teal-200: #a3d5d5;
+  --color-teal-300: #75c0c0;
+  --color-teal-400: #47abab;
+  --color-teal-500: #2a8a89;
+  --color-teal-600: var(--primary); /* Base brand color */
+  --color-teal-700: #164948;
+  --color-teal-800: #0d3231;
+  --color-teal-900: #041b1a;
+  
+  /* Primary brand color variable */
+  --color-primary: var(--primary);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -37,6 +46,21 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.btn-brand {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+  transition: background-color 150ms ease;
+}
+
+.btn-brand:hover {
+  background-color: var(--primary-dark);
+}
+
+.btn-brand:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Hide horizontal/vertical scrollbars for custom sliders */
@@ -89,4 +113,10 @@ body {
 
 .animation-delay-2000 {
   animation-delay: 2s;
+}
+
+/* Disabled variation option styling */
+.disabled-option {
+  opacity: 0.5;
+  pointer-events: none;
 }

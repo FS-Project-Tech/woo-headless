@@ -1,54 +1,51 @@
 import { NextResponse } from "next/server";
 import wcAPI from "@/lib/woocommerce";
 
-// Cache product count (changes infrequently)
-let cachedCount: { count: number; timestamp: number } | null = null;
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour
-
+/**
+ * Search Count API
+ * Returns the total number of products available for search
+ * Used by SearchBar component to display product count in placeholder
+ */
 export async function GET() {
   try {
-    const now = Date.now();
-    
-    // Return cached count if fresh
-    if (cachedCount && (now - cachedCount.timestamp) < CACHE_TTL) {
-      return NextResponse.json({ count: cachedCount.count });
-    }
-    
-    // Fetch total product count
+    // Fetch just the total count from WooCommerce (lightweight request)
     const response = await wcAPI.get('/products', {
       params: {
-        per_page: 1,
         status: 'publish',
+        per_page: 1, // Only need headers, not data
+        _fields: 'id', // Minimal field to reduce payload
       },
+      timeout: 5000,
     });
-    
-    // Get total from headers or estimate
-    const total = parseInt(response.headers['x-wp-total'] as string || '0', 10) || 
-                  parseInt(response.headers['x-wp-totalpages'] as string || '0', 10) * 100;
-    
-    // If header not available, try to estimate from first page
-    let count = total;
-    if (count === 0) {
-      // Fallback: estimate from first page
-      const firstPage = await wcAPI.get('/products', {
-        params: { per_page: 100, status: 'publish' },
-      });
-      count = (firstPage.data || []).length;
-      // Rough estimate (not accurate but better than nothing)
-      if (count === 100) count = 500; // Estimate if page is full
+
+    // Extract total from response headers
+    const total = parseInt(response.headers['x-wp-total'] || '0', 10);
+
+    return NextResponse.json(
+      { count: total },
+      {
+        headers: {
+          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600', // Cache for 5 minutes
+        },
+      }
+    );
+  } catch (error: any) {
+    // Handle errors gracefully - return 0 count instead of failing
+    // Only log non-timeout errors
+    if (error?.code !== 'ECONNABORTED' && error?.code !== 'ETIMEDOUT' && !error?.message?.toLowerCase().includes('timeout')) {
+      console.error('Error fetching product count:', error);
     }
-    
-    cachedCount = { count, timestamp: now };
-    
-    return NextResponse.json({ count }, {
-      headers: {
-        'Cache-Control': 'public, max-age=3600', // 1 hour
-      },
-    });
-  } catch (error) {
-    console.error('Error fetching product count:', error);
-    // Return a default estimate
-    return NextResponse.json({ count: 0 });
+
+    // Return 0 count on error (search will still work, just without count in placeholder)
+    return NextResponse.json(
+      { count: 0 },
+      {
+        status: 200, // Return 200 to prevent client-side errors
+        headers: {
+          'Cache-Control': 'public, s-maxage=60', // Short cache on error
+        },
+      }
+    );
   }
 }
 

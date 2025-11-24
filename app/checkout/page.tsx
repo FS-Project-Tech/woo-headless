@@ -18,6 +18,16 @@ import ShippingOptions from "@/components/ShippingOptions";
 import { parseCartTotal, calculateGST, calculateTotal } from "@/lib/cart-utils";
 import { formatPrice } from "@/lib/format-utils";
 
+// Shipping Method Type
+interface ShippingMethodType {
+  id: string;
+  method_id: string;
+  label: string;
+  cost: number;
+  total: number;
+  description?: string;
+}
+
 // Validation Schema
 const checkoutSchema = yup.object({
   billing: yup.object({
@@ -42,7 +52,14 @@ const checkoutSchema = yup.object({
     country: yup.string().optional(),
     state: yup.string().optional(),
   }),
-  shippingMethod: yup.object().required("Please select a shipping method"),
+  shippingMethod: yup.object<ShippingMethodType>({
+    id: yup.string().required(),
+    method_id: yup.string().required(),
+    label: yup.string().required(),
+    cost: yup.number().required(),
+    total: yup.number().required(),
+    description: yup.string().optional(),
+  }).required("Please select a shipping method"),
   paymentMethod: yup.string().required("Payment method is required"),
   shipToDifferentAddress: yup.boolean().default(false),
   deliveryAuthority: yup.string().default("with_signature"),
@@ -207,13 +224,13 @@ function CheckoutPageContent() {
 
   // Calculate totals
   const subtotal = parseCartTotal(total);
-  const shippingCost = watchedShippingMethod ? Number(watchedShippingMethod?.cost || 0) : 0;
+  const shippingCost = watchedShippingMethod ? Number((watchedShippingMethod as ShippingMethodType)?.cost || 0) : 0;
   const couponDiscount = discount || 0;
   const gst = calculateGST(subtotal, shippingCost, couponDiscount);
   const orderTotal = calculateTotal(subtotal, shippingCost, couponDiscount, gst);
 
   // Submit handler
-  const onSubmit = async (data: CheckoutFormData) => {
+  const onSubmit = async (data: CheckoutFormData): Promise<void> => {
     if (items.length === 0) {
       showError("Your cart is empty");
       return;
@@ -279,8 +296,8 @@ function CheckoutPageContent() {
         shipping_lines: data.shippingMethod
           ? [
               {
-                method_id: data.shippingMethod.method_id || "flat_rate",
-                total: String(data.shippingMethod.total || data.shippingMethod.cost || 0),
+                method_id: (data.shippingMethod as ShippingMethodType).method_id || "flat_rate",
+                total: String((data.shippingMethod as ShippingMethodType).total || (data.shippingMethod as ShippingMethodType).cost || 0),
               },
             ]
           : [],
@@ -633,11 +650,12 @@ function CheckoutPageContent() {
                 <Controller
                   name="shipToDifferentAddress"
                   control={control}
-                  render={({ field }) => (
+                  render={({ field: { value, onChange, ...field } }) => (
                     <input
                       type="checkbox"
                       {...field}
-                      checked={field.value}
+                      checked={value || false}
+                      onChange={(e) => onChange(e.target.checked)}
                       className="h-4 w-4 rounded border-gray-300"
                     />
                   )}
@@ -777,9 +795,16 @@ function CheckoutPageContent() {
                     state={watchedShipToDifferent ? shippingState : billingState}
                     subtotal={cartSubtotal}
                     items={items}
-                    selectedRateId={field.value?.id}
+                    selectedRateId={(field.value as ShippingMethodType | undefined)?.id}
                     onRateChange={(rateId, rate) => {
-                      field.onChange(rate);
+                      field.onChange({
+                        id: rateId,
+                        method_id: rate.id,
+                        label: rate.label,
+                        cost: rate.cost,
+                        total: rate.cost,
+                        description: rate.description,
+                      });
                     }}
                     showLabel={false}
                     className=""
@@ -891,11 +916,12 @@ function CheckoutPageContent() {
                   <Controller
                     name="subscribe_newsletter"
                     control={control}
-                    render={({ field }) => (
+                    render={({ field: { value, onChange, ...field } }) => (
                       <input
                         type="checkbox"
                         {...field}
-                        checked={field.value}
+                        checked={value || false}
+                        onChange={(e) => onChange(e.target.checked)}
                         className="h-4 w-4 rounded border-gray-300"
                       />
                     )}
@@ -911,11 +937,12 @@ function CheckoutPageContent() {
                 <Controller
                   name="termsAccepted"
                   control={control}
-                  render={({ field }) => (
+                  render={({ field: { value, onChange, ...field } }) => (
                     <input
                       type="checkbox"
                       {...field}
-                      checked={field.value}
+                      checked={value || false}
+                      onChange={(e) => onChange(e.target.checked)}
                       className="mt-1 h-4 w-4 rounded border-gray-300"
                     />
                   )}
