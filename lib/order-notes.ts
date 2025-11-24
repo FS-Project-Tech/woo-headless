@@ -1,64 +1,71 @@
 /**
- * Order Notes Helper
- * Utilities for adding notes to WooCommerce orders
+ * Order Notes Utilities
+ * Functions for adding notes to WooCommerce orders
  */
 
-import wcAPI from "@/lib/woocommerce";
+import wcAPI from "./woocommerce";
 
 /**
- * Add order note to WooCommerce order
+ * Add a payment status note to an order
  */
-export async function addOrderNote(
+export async function addPaymentStatusNote(
   orderId: number,
-  note: string,
-  customerNote: boolean = false
-): Promise<boolean> {
+  status: string,
+  transactionId?: string,
+  amount?: number | string
+): Promise<void> {
   try {
+    const amountNum = typeof amount === 'string' ? parseFloat(amount) : amount;
+    const note = `Payment ${status}${transactionId ? ` - Transaction ID: ${transactionId}` : ""}${amountNum ? ` - Amount: $${amountNum.toFixed(2)}` : ""}`;
+    
     await wcAPI.post(`/orders/${orderId}/notes`, {
-      note: note,
-      customer_note: customerNote,
+      note,
+      customer_note: false,
     });
-    return true;
-  } catch (error: any) {
-    console.error(`Error adding note to order ${orderId}:`, error);
-    return false;
+  } catch (error) {
+    console.error(`Failed to add payment status note to order ${orderId}:`, error);
+    // Don't throw - note addition failure shouldn't break order processing
   }
 }
 
 /**
- * Add order status update note
+ * Add a status update note to an order
  */
 export async function addStatusUpdateNote(
   orderId: number,
   oldStatus: string,
   newStatus: string,
-  note?: string
-): Promise<boolean> {
-  const statusNote = note || `Order status changed from "${oldStatus}" to "${newStatus}"`;
-  const fullNote = `[Status Update]\n${statusNote}\nDate: ${new Date().toISOString()}`;
-  return await addOrderNote(orderId, fullNote, false);
+  reason?: string
+): Promise<void> {
+  try {
+    const note = `Order status changed from ${oldStatus} to ${newStatus}${reason ? ` - ${reason}` : ""}`;
+    
+    await wcAPI.post(`/orders/${orderId}/notes`, {
+      note,
+      customer_note: false,
+    });
+  } catch (error) {
+    console.error(`Failed to add status update note to order ${orderId}:`, error);
+    // Don't throw - note addition failure shouldn't break order processing
+  }
 }
 
 /**
- * Add payment status update note
- * Only payment status goes in notes - other info is in order data section
+ * Add a general note to an order
  */
-export async function addPaymentStatusNote(
+export async function addOrderNote(
   orderId: number,
-  paymentMethod: string,
-  transactionId: string | null,
-  status: "success" | "failed",
-  details?: string
-): Promise<boolean> {
-  let note = `Payment Status: ${status === "success" ? "Paid" : "Failed"}`;
-  if (transactionId) {
-    note += `\nTransaction ID: ${transactionId}`;
+  note: string,
+  customerNote: boolean = false
+): Promise<void> {
+  try {
+    await wcAPI.post(`/orders/${orderId}/notes`, {
+      note,
+      customer_note: customerNote,
+    });
+  } catch (error) {
+    console.error(`Failed to add note to order ${orderId}:`, error);
+    // Don't throw - note addition failure shouldn't break order processing
   }
-  note += `\nPayment Method: ${paymentMethod}`;
-  if (details) {
-    note += `\n${details}`;
-  }
-  note += `\nDate: ${new Date().toISOString()}`;
-  return await addOrderNote(orderId, note, false);
 }
 

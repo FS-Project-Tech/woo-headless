@@ -33,6 +33,12 @@ class SearchIndexManager {
   async initialize(): Promise<void> {
     if (this.initialized) return;
     
+    // Only initialize in browser environment
+    if (typeof window === 'undefined') {
+      this.initialized = true;
+      return;
+    }
+    
     try {
       // Try to initialize IndexedDB
       if (typeof window !== 'undefined' && 'indexedDB' in window) {
@@ -53,15 +59,27 @@ class SearchIndexManager {
         // Check if we need to refresh
         const lastSync = await this.getLastSyncTime();
         if (Date.now() - lastSync > this.SYNC_INTERVAL) {
-          // Refresh in background
-          this.syncWithAPI().catch(() => {});
+          // Refresh in background - don't await, let it fail silently
+          this.syncWithAPI().catch(() => {
+            // Silently handle sync errors - we already have cached data
+          });
         }
       } else {
-        // Initial load from API
-        await this.syncWithAPI();
+        // Initial load from API - but don't block initialization if it fails
+        try {
+          await this.syncWithAPI();
+        } catch (error: any) {
+          // If initial sync fails, continue with empty index
+          // User can still search via API fallback
+          this.index = [];
+          this.initialized = true;
+        }
       }
     } catch (error) {
-      console.error('Search index initialization error:', error);
+      // Only log unexpected errors
+      if (error && typeof error === 'object' && 'name' in error && error.name !== 'AbortError') {
+        console.error('Search index initialization error:', error);
+      }
       // Continue with empty index
       this.index = [];
       this.initialized = true;
@@ -222,12 +240,62 @@ class SearchIndexManager {
   }
 
   async syncWithAPI(): Promise<void> {
+    // Only sync in browser environment
+    if (typeof window === 'undefined') {
+      return;
+    }
+
     try {
-      // Fetch all searchable data
-      const response = await fetch('/api/search/index');
-      if (!response.ok) throw new Error('Failed to fetch index');
+      // Fetch all searchable data with timeout and error handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
-      const data = await response.json();
+      let response: Response;
+      try {
+        response = await fetch('/api/search/index', {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        clearTimeout(timeoutId);
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        // Handle network errors, aborted requests, or browser extension interference
+        if (fetchError.name === 'AbortError' || fetchError.message === 'Failed to fetch' || fetchError.message === 'NetworkError') {
+          // Silently fail - will retry on next initialization or manual refresh
+          return;
+        }
+        throw fetchError;
+      }
+      
+      if (!response.ok) {
+        // If API returns error, use empty index
+        if (response.status >= 500) {
+          // Server error - don't log, just use cached data if available
+          return;
+        }
+        throw new Error(`Failed to fetch index: ${response.status}`);
+      }
+      
+      // Check if response body exists before reading (prevents getReader error on null)
+      if (!response.body) {
+        // No body to read - keep existing cache
+        return;
+      }
+      
+      // Handle empty responses gracefully (browser extensions can return empty bodies)
+      const raw = await response.text();
+      if (!raw || raw.trim() === '') {
+        // Nothing to sync - keep existing cache
+        return;
+      }
+      
+      let data: any;
+      try {
+        data = JSON.parse(raw);
+      } catch (parseError) {
+        console.warn('Search index response was not valid JSON, skipping sync');
+        return;
+      }
       
       // Transform to search index format
       const items: SearchIndexItem[] = [];
@@ -327,10 +395,22 @@ class SearchIndexManager {
       this.index = items;
       await this.saveToIndexedDB(items);
       this.initialized = true;
-    } catch (error) {
-      console.error('Failed to sync search index:', error);
-      // Use empty index if sync fails
-      this.index = [];
+    } catch (error: any) {
+      // Only log unexpected errors (not network errors, timeouts, or aborted requests)
+      if (error && typeof error === 'object' && 'name' in error && error.name !== 'AbortError' && error.message !== 'Failed to fetch' && error.message !== 'NetworkError') {
+        console.error('Failed to sync search index:', error);
+      }
+      // Use cached index if available, otherwise empty index
+      // Don't overwrite existing index with empty array if we have cached data
+      if (this.index.length === 0) {
+        // Try to load from cache as fallback
+        const cached = await this.loadFromIndexedDB();
+        if (cached && cached.length > 0) {
+          this.index = cached;
+        }
+      }
+      // Ensure initialized is true so search can still work with cached data
+      this.initialized = true;
     }
   }
 

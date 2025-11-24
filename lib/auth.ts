@@ -61,18 +61,46 @@ export async function validateToken(token: string): Promise<boolean> {
     const wpBase = getWpBaseUrl();
     if (!wpBase) return false;
 
-    const response = await fetch(`${wpBase}/wp-json/jwt-auth/v1/token/validate`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-    });
+    // Add timeout to prevent hanging requests
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutMs = 5000; // 5 second timeout for validation
+    const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
-    return response.ok;
-  } catch (error) {
-    console.error('Token validation error:', error);
+    try {
+      const response = await fetch(`${wpBase}/wp-json/jwt-auth/v1/token/validate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        signal: controller?.signal,
+      }).finally(() => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      });
+
+      return response.ok;
+    } catch (fetchError: any) {
+      // Handle timeout and connection errors gracefully
+      if (fetchError?.name === 'AbortError' || 
+          fetchError?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+          fetchError?.message?.includes('timeout') ||
+          fetchError?.message?.includes('aborted')) {
+        // Timeout/connection error - treat as invalid token
+        return false;
+      }
+      throw fetchError;
+    }
+  } catch (error: any) {
+    // Only log non-timeout errors
+    if (error?.name !== 'AbortError' && 
+        error?.code !== 'UND_ERR_CONNECT_TIMEOUT' &&
+        !error?.message?.includes('timeout') &&
+        !error?.message?.includes('aborted')) {
+      console.error('Token validation error:', error);
+    }
     return false;
   }
 }
@@ -88,36 +116,72 @@ export async function getUserData(token: string): Promise<any | null> {
       return null;
     }
 
-    const response = await fetch(`${wpBase}/wp-json/wp/v2/users/me`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      cache: 'no-store',
-    });
+    // Add timeout to prevent hanging requests
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutMs = 10000; // 10 second timeout
+    const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
-    if (!response.ok) {
-      console.error('Failed to fetch user data:', response.status, response.statusText);
-      return null;
+    try {
+      const response = await fetch(`${wpBase}/wp-json/wp/v2/users/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        signal: controller?.signal,
+      }).finally(() => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      });
+
+      if (!response.ok) {
+        // Don't log 401/403 as errors - these are expected for invalid tokens
+        if (response.status !== 401 && response.status !== 403) {
+          console.error('Failed to fetch user data:', response.status, response.statusText);
+        }
+        return null;
+      }
+
+      // Check if response body exists before reading (prevents getReader error on null)
+      if (!response.body) {
+        return null;
+      }
+
+      const user = await response.json();
+      
+      // Ensure we have required fields
+      if (!user || !user.id) {
+        console.error('Invalid user data received:', user);
+        return null;
+      }
+
+      return {
+        id: user.id,
+        email: user.email || user.user_email,
+        name: user.name || user.display_name,
+        username: user.slug || user.user_login || user.nicename,
+        roles: user.roles || [],
+      };
+    } catch (fetchError: any) {
+      // Handle timeout and connection errors gracefully
+      if (fetchError?.name === 'AbortError' || 
+          fetchError?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+          fetchError?.message?.includes('timeout') ||
+          fetchError?.message?.includes('aborted')) {
+        // Timeout/connection error - don't log as error
+        return null;
+      }
+      throw fetchError;
     }
-
-    const user = await response.json();
-    
-    // Ensure we have required fields
-    if (!user || !user.id) {
-      console.error('Invalid user data received:', user);
-      return null;
+  } catch (error: any) {
+    // Only log non-timeout errors
+    if (error?.name !== 'AbortError' && 
+        error?.code !== 'UND_ERR_CONNECT_TIMEOUT' &&
+        !error?.message?.includes('timeout') &&
+        !error?.message?.includes('aborted')) {
+      console.error('Get user data error:', error);
     }
-
-    return {
-      id: user.id,
-      email: user.email || user.user_email,
-      name: user.name || user.display_name,
-      username: user.slug || user.user_login || user.nicename,
-      roles: user.roles || [],
-    };
-  } catch (error) {
-    console.error('Get user data error:', error);
     return null;
   }
 }

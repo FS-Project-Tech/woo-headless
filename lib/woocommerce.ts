@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { generateCacheKey, getCachedResponse } from './api-cache';
 
 const API_URL = process.env.NEXT_PUBLIC_WC_API_URL;
 const CONSUMER_KEY = process.env.NEXT_PUBLIC_WC_CONSUMER_KEY;
@@ -36,7 +35,66 @@ wcAPI.defaults.params = {
   consumer_secret: CONSUMER_SECRET || '',
 };
 
-// Add response interceptor for better error handling
+// Add request interceptor for performance tracking (server-side only)
+if (typeof window === 'undefined') {
+  try {
+    const { fetchMonitor } = require('./monitoring/fetch-instrumentation');
+    
+    wcAPI.interceptors.request.use(
+      (config) => {
+        // Store start time in config metadata
+        (config as any).__startTime = Date.now();
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+    
+    // Performance tracking response interceptor (runs first)
+    wcAPI.interceptors.response.use(
+      (response) => {
+        const config = response.config as any;
+        if (config.__startTime) {
+          const duration = Date.now() - config.__startTime;
+          const url = `${wcAPI.defaults.baseURL}${config.url || ''}`;
+          fetchMonitor.track(
+            url,
+            config.method?.toUpperCase() || 'GET',
+            duration,
+            response.status,
+            config.__route,
+            false,
+            undefined
+          );
+        }
+        return response;
+      },
+      (error) => {
+        const config = error.config as any;
+        if (config?.__startTime) {
+          const duration = Date.now() - config.__startTime;
+          const url = `${wcAPI.defaults.baseURL}${config.url || ''}`;
+          fetchMonitor.track(
+            url,
+            config.method?.toUpperCase() || 'GET',
+            duration,
+            error.response?.status,
+            config.__route,
+            false,
+            error.message || 'Unknown error'
+          );
+        }
+        return Promise.reject(error); // Continue to error handler
+      }
+    );
+  } catch (error) {
+    // Silently fail if monitoring not available
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Performance monitoring not available:', error);
+    }
+  }
+}
+
+// Add response interceptor for better error handling (runs after performance tracking)
 wcAPI.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -143,10 +201,38 @@ wcAPI.interceptors.response.use(
       }
     } else if (error.request) {
       // Request was made but no response received
-      console.error('WooCommerce API Network Error:', {
-        message: error.message || 'No response from server',
-        url: error.config?.url || 'Unknown URL',
-      });
+      // Timeout errors are expected in some scenarios (slow API, network issues)
+      // and are handled gracefully by components returning empty arrays/defaults
+      // Don't log timeout errors to reduce console noise
+      const isTimeoutError = error.code === 'ECONNABORTED' || 
+                            error.code === 'ETIMEDOUT' ||
+                            error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+                            error.message?.toLowerCase().includes('timeout') ||
+                            error.message?.toLowerCase().includes('exceeded') ||
+                            error.message?.toLowerCase().includes('aborted') ||
+                            error.message?.includes('Connect Timeout');
+      
+      // Only log non-timeout network errors in development mode
+      if (process.env.NODE_ENV === 'development' && !isTimeoutError) {
+        const errorInfo: Record<string, any> = {
+          message: error.message || 'No response from server',
+          url: error.config?.url || 'Unknown URL',
+        };
+        
+        // Only add additional info if available
+        if (error.code) {
+          errorInfo.code = error.code;
+        }
+        if (error.config?.method) {
+          errorInfo.method = error.config.method;
+        }
+        
+        // Only log if we have meaningful information
+        if (errorInfo.message && errorInfo.url) {
+          console.warn('WooCommerce API Network Error (handled gracefully):', errorInfo);
+        }
+      }
+      // Timeout errors are silently handled - components will show empty states
     } else {
       // Error setting up the request
       console.error('WooCommerce API Request Setup Error:', error.message || 'Unknown error');
@@ -249,7 +335,7 @@ export interface WooCommerceVariation {
   stock_status: string;
 }
 
-// Fetch all products (with caching)
+// Fetch all products
 export const fetchProducts = async (params?: {
   per_page?: number;
   page?: number;
@@ -258,16 +344,10 @@ export const fetchProducts = async (params?: {
   category?: string | number;
   search?: string;
   featured?: boolean;
-  on_sale?: boolean;
 }): Promise<WooCommerceProduct[]> => {
-  const cacheKey = generateCacheKey('/products', params as Record<string, any>);
-  
-  return getCachedResponse(
-    cacheKey,
-    async () => {
-      try {
-        // Clean up params - ensure category is a valid number or string
-        const cleanParams: any = {};
+  try {
+    // Clean up params - ensure category is a valid number or string
+    const cleanParams: any = {};
     
     // Only include valid parameters
     if (params?.per_page !== undefined && params.per_page > 0) {
@@ -304,32 +384,29 @@ export const fetchProducts = async (params?: {
       cleanParams.featured = params.featured ? 1 : 0;
     }
     
-    if (params?.on_sale !== undefined) {
-      cleanParams.on_sale = params.on_sale ? 1 : 0;
-    }
-    
-    
     const response = await wcAPI.get('/products', { params: cleanParams });
     return response.data || [];
   } catch (error: any) {
     // Don't duplicate error logging - the interceptor already handles response errors
-    // Only log non-response errors (network issues, etc.) in development
-    if (!error.response) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Network error fetching products:', {
-          message: error.message,
-          url: error.config?.url,
-        });
-      }
+    // Timeout errors are expected in some scenarios and handled gracefully
+    // Suppress all timeout-related errors to reduce console noise
+    const isTimeoutError = error.code === 'ECONNABORTED' || 
+                          error.code === 'ETIMEDOUT' ||
+                          error.message?.toLowerCase().includes('timeout') ||
+                          error.message?.toLowerCase().includes('exceeded') ||
+                          error.message?.toLowerCase().includes('aborted');
+    
+    if (!error.response && process.env.NODE_ENV === 'development' && !isTimeoutError) {
+      console.warn('Network error fetching products (handled gracefully):', {
+        message: error.message,
+        url: error.config?.url,
+      });
     }
     
     // Return empty array instead of throwing to prevent page crashes
     // Components handle empty arrays gracefully
     return [];
   }
-    },
-    5 * 60 * 1000 // 5 minute cache TTL
-  );
 };
 
 // Fetch a single product by ID
@@ -343,40 +420,65 @@ export const fetchProduct = async (id: number): Promise<WooCommerceProduct> => {
   }
 };
 
-// Fetch a single product by slug (with caching)
+// Fetch a single product by slug
 export const fetchProductBySlug = async (slug: string): Promise<WooCommerceProduct | null> => {
-  const cacheKey = generateCacheKey('/products', { slug });
-  
-  return getCachedResponse(
-    cacheKey,
-    async () => {
-      try {
-        const response = await wcAPI.get('/products', { params: { slug } });
-        const products: WooCommerceProduct[] = response.data;
-        return products.length > 0 ? products[0] : null;
-      } catch (error: any) {
-        // Log error details
-        if (error.response) {
-          console.error('Error fetching product by slug:', {
-            slug,
-            status: error.response.status,
-            message: error.response.data?.message || error.message || 'Unknown error',
-            code: error.response.data?.code,
-            data: error.response.data,
-          });
-        } else {
-          console.error('Error fetching product by slug:', {
-            slug,
-            message: error.message || 'Unknown error',
-          });
-        }
-        // Return null instead of throwing to allow graceful degradation
-        // The interceptor already logs the error, so we don't need to throw
-        return null;
+  // Validate slug input
+  if (!slug || typeof slug !== 'string' || slug.trim().length === 0) {
+    console.error('Invalid slug provided to fetchProductBySlug:', slug);
+    return null;
+  }
+
+  try {
+    const response = await wcAPI.get('/products', { params: { slug: slug.trim() } });
+    const products: WooCommerceProduct[] = response.data;
+    
+    if (!Array.isArray(products)) {
+      console.error('Unexpected response format from WooCommerce API:', response.data);
+      return null;
+    }
+    
+    return products.length > 0 ? products[0] : null;
+  } catch (error: any) {
+    // Log error details with better error handling
+    const errorDetails: any = { slug };
+    
+    if (error?.response) {
+      // Axios response error
+      errorDetails.status = error.response.status;
+      errorDetails.statusText = error.response.statusText;
+      errorDetails.message = error.response.data?.message || error.message || String(error);
+      errorDetails.code = error.response.data?.code;
+      if (error.response.data) {
+        errorDetails.data = error.response.data;
       }
-    },
-    5 * 60 * 1000 // 5 minute cache TTL
-  );
+    } else if (error?.request) {
+      // Request was made but no response received
+      errorDetails.message = 'No response received from server';
+      errorDetails.type = 'network_error';
+    } else if (error instanceof Error) {
+      // Standard Error object
+      errorDetails.message = error.message;
+      errorDetails.name = error.name;
+      errorDetails.stack = error.stack;
+    } else if (typeof error === 'string') {
+      // String error
+      errorDetails.message = error;
+    } else if (error && typeof error === 'object') {
+      // Generic object error
+      errorDetails.message = error.message || error.toString() || 'Unknown error';
+      errorDetails.error = error;
+    } else {
+      // Unknown error type
+      errorDetails.message = 'Unknown error occurred';
+      errorDetails.error = String(error);
+    }
+    
+    console.error('Error fetching product by slug:', errorDetails);
+    
+    // Return null instead of throwing to allow graceful degradation
+    // The interceptor already logs the error, so we don't need to throw
+    return null;
+  }
 };
 
 // Fetch products by category
@@ -420,18 +522,18 @@ export const fetchCategories = async (params?: { per_page?: number; parent?: num
     const response = await wcAPI.get('/products/categories', { params });
     return response.data || [];
   } catch (error: any) {
-    // Log error details for debugging
-    if (error.response) {
-      console.error('Error fetching categories:', {
+    // Log error details for debugging (only in development)
+    // Network errors are already logged by the interceptor
+    if (process.env.NODE_ENV === 'development' && error.response) {
+      console.warn('Error fetching categories:', {
         status: error.response.status,
         statusText: error.response.statusText,
         url: error.config?.url,
         message: error.response.data?.message || error.message,
       });
-    } else {
-      console.error('Error fetching categories:', error.message || 'Unknown error');
     }
     // Return empty array instead of throwing to prevent breaking the UI
+    // Components handle empty arrays gracefully
     return [];
   }
 };
@@ -441,9 +543,24 @@ export const fetchCategoryBySlug = async (slug: string): Promise<WooCommerceCate
     const response = await wcAPI.get('/products/categories', { params: { slug } });
     const categories: WooCommerceCategory[] = response.data;
     return categories.length ? categories[0] : null;
-  } catch (error) {
-    console.error('Error fetching category by slug:', error);
-    throw error;
+  } catch (error: any) {
+    // Timeout errors are expected in some scenarios and handled gracefully
+    // Components handle null returns gracefully
+    // Suppress all timeout-related errors to reduce console noise
+    const isTimeoutError = error.code === 'ECONNABORTED' || 
+                          error.code === 'ETIMEDOUT' ||
+                          error.message?.toLowerCase().includes('timeout') ||
+                          error.message?.toLowerCase().includes('exceeded') ||
+                          error.message?.toLowerCase().includes('aborted');
+    
+    // Don't log timeout errors - they're handled gracefully
+    // Only log other network errors in development mode
+    if (process.env.NODE_ENV === 'development' && !error.response && !isTimeoutError) {
+      console.warn(`Network error fetching category by slug "${slug}" (handled gracefully)`);
+    }
+    // Timeout errors are silently handled - return null gracefully
+    // Return null instead of throwing to prevent breaking the UI
+    return null;
   }
 };
 

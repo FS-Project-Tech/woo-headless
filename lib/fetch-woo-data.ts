@@ -330,7 +330,6 @@ export async function prefetchProducts(
     order?: string;
     category?: string | number;
     featured?: boolean;
-    on_sale?: boolean;
   },
   options?: { maxPages?: number }
 ): Promise<WooCommerceProduct[]> {

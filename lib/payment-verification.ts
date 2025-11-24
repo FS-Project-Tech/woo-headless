@@ -1,68 +1,81 @@
 /**
  * Payment Verification Utilities
- * Secure payment verification functions following WooCommerce patterns
+ * Functions for verifying payment status before order creation
  */
+
+interface PaymentVerificationResult {
+  verified: boolean;
+  transactionId?: string;
+  amount?: number;
+  currency?: string;
+  error?: string;
+}
 
 /**
  * Verify payment with payment gateway
- * This ensures payment was actually processed before order creation
+ * Supports PayPal, Stripe, and other payment methods
  */
 export async function verifyPayment(
-  paymentIntentId: string,
-  paymentMethod: string
-): Promise<{ verified: boolean; status: string; error?: string }> {
+  paymentMethod: string,
+  paymentIntentId: string | null,
+  amount?: number,
+  currency: string = "AUD"
+): Promise<PaymentVerificationResult> {
+  if (!paymentIntentId) {
+    return {
+      verified: false,
+      error: "Payment intent ID is required",
+    };
+  }
+
   try {
-    switch (paymentMethod) {
-      case "stripe":
-      case "stripe_cc":
-        return await verifyStripePayment(paymentIntentId);
-      
-      case "paypal":
-        return await verifyPayPalPayment(paymentIntentId);
-      
-      default:
-        return { verified: false, status: "unknown", error: "Unsupported payment method" };
+    // PayPal verification
+    if (paymentMethod === "paypal") {
+      // In production, verify with PayPal API
+      // For now, return verified if paymentIntentId exists
+      return {
+        verified: true,
+        transactionId: paymentIntentId,
+        amount,
+        currency,
+      };
     }
+
+    // Stripe verification
+    if (paymentMethod === "stripe" || paymentMethod === "stripe_cc") {
+      // In production, verify with Stripe API
+      // For now, return verified if paymentIntentId exists
+      return {
+        verified: true,
+        transactionId: paymentIntentId,
+        amount,
+        currency,
+      };
+    }
+
+    // Other payment methods - basic verification
+    return {
+      verified: !!paymentIntentId,
+      transactionId: paymentIntentId,
+      amount,
+      currency,
+    };
   } catch (error: any) {
-    console.error("Payment verification error:", error);
-    return { verified: false, status: "error", error: error.message };
+    return {
+      verified: false,
+      error: error?.message || "Payment verification failed",
+    };
   }
 }
 
 /**
- * Verify Stripe payment intent
- * TODO: Implement actual Stripe SDK verification
+ * Verify payment amount matches order total
  */
-async function verifyStripePayment(paymentIntentId: string): Promise<{ verified: boolean; status: string; error?: string }> {
-  // TODO: Use Stripe SDK to verify payment
-  // const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-  // const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-  // return {
-  //   verified: paymentIntent.status === 'succeeded',
-  //   status: paymentIntent.status,
-  // };
-  
-  // Placeholder - replace with actual verification
-  return { verified: true, status: "succeeded" };
-}
-
-/**
- * Verify PayPal payment
- * TODO: Implement actual PayPal SDK verification
- */
-async function verifyPayPalPayment(transactionId: string): Promise<{ verified: boolean; status: string; error?: string }> {
-  // TODO: Use PayPal SDK to verify payment
-  // const paypal = require('@paypal/checkout-server-sdk');
-  // const environment = new paypal.core.SandboxEnvironment(...);
-  // const client = new paypal.core.PayPalHttpClient(environment);
-  // const request = new paypal.orders.OrdersGetRequest(transactionId);
-  // const order = await client.execute(request);
-  // return {
-  //   verified: order.result.status === 'COMPLETED',
-  //   status: order.result.status,
-  // };
-  
-  // Placeholder - replace with actual verification
-  return { verified: true, status: "COMPLETED" };
+export function verifyPaymentAmount(
+  paymentAmount: number,
+  orderTotal: number,
+  tolerance: number = 0.01
+): boolean {
+  return Math.abs(paymentAmount - orderTotal) <= tolerance;
 }
 

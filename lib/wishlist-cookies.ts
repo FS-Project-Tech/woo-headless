@@ -1,52 +1,95 @@
-// Client-side cookie utilities for wishlist
+/**
+ * Wishlist Cookie Utilities
+ * Functions for managing wishlist data in cookies (client-side storage)
+ */
 
-const WISHLIST_COOKIE = 'wishlist_guest';
+const WISHLIST_COOKIE_NAME = "wishlist";
+const WISHLIST_COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
 
 /**
- * Get wishlist from cookies (client-side only)
+ * Get wishlist from cookie
+ * Returns array of product IDs
  */
 export function getWishlistFromCookie(): number[] {
-  if (typeof document === 'undefined') return [];
-  
-  const cookies = document.cookie.split(';');
-  const wishlistCookie = cookies.find(c => c.trim().startsWith(`${WISHLIST_COOKIE}=`));
-  
-  if (!wishlistCookie) return [];
-  
+  if (typeof window === "undefined") return [];
+
   try {
-    const value = wishlistCookie.split('=')[1];
+    const cookies = document.cookie.split(";");
+    const wishlistCookie = cookies.find((cookie) =>
+      cookie.trim().startsWith(`${WISHLIST_COOKIE_NAME}=`)
+    );
+
+    if (!wishlistCookie) return [];
+
+    const value = wishlistCookie.split("=")[1];
+    if (!value) return [];
+
     const decoded = decodeURIComponent(value);
     const parsed = JSON.parse(decoded);
-    return Array.isArray(parsed) ? parsed.filter((id): id is number => typeof id === 'number' && id > 0) : [];
-  } catch {
+    
+    if (Array.isArray(parsed)) {
+      return parsed.filter((id) => typeof id === "number" && id > 0);
+    }
+    
+    return [];
+  } catch (error) {
+    console.error("Failed to parse wishlist cookie:", error);
     return [];
   }
 }
 
 /**
- * Save wishlist to cookies (client-side only)
+ * Save wishlist to cookie
  */
 export function saveWishlistToCookie(wishlist: number[]): void {
-  if (typeof document === 'undefined') return;
-  
-  // Limit to 100 items to avoid cookie size issues (4KB limit)
-  const limited = wishlist.slice(0, 100);
-  const value = JSON.stringify(limited);
-  const encoded = encodeURIComponent(value);
-  
-  // Set cookie with 1 year expiration
-  const expires = new Date();
-  expires.setFullYear(expires.getFullYear() + 1);
-  
-  document.cookie = `${WISHLIST_COOKIE}=${encoded}; path=/; expires=${expires.toUTCString()}; SameSite=Lax`;
+  if (typeof window === "undefined") return;
+
+  try {
+    const value = JSON.stringify(wishlist);
+    const encoded = encodeURIComponent(value);
+    const expires = new Date(Date.now() + WISHLIST_COOKIE_MAX_AGE * 1000).toUTCString();
+    
+    document.cookie = `${WISHLIST_COOKIE_NAME}=${encoded}; expires=${expires}; path=/; SameSite=Lax`;
+  } catch (error) {
+    console.error("Failed to save wishlist cookie:", error);
+  }
 }
 
 /**
- * Clear wishlist cookie (client-side only)
+ * Clear wishlist cookie
  */
 export function clearWishlistCookie(): void {
-  if (typeof document === 'undefined') return;
-  
-  document.cookie = `${WISHLIST_COOKIE}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+  if (typeof window === "undefined") return;
+
+  try {
+    document.cookie = `${WISHLIST_COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+  } catch (error) {
+    console.error("Failed to clear wishlist cookie:", error);
+  }
+}
+
+/**
+ * Add product to wishlist cookie
+ */
+export function addToWishlistCookie(productId: number): void {
+  const current = getWishlistFromCookie();
+  if (!current.includes(productId)) {
+    saveWishlistToCookie([...current, productId]);
+  }
+}
+
+/**
+ * Remove product from wishlist cookie
+ */
+export function removeFromWishlistCookie(productId: number): void {
+  const current = getWishlistFromCookie();
+  saveWishlistToCookie(current.filter((id) => id !== productId));
+}
+
+/**
+ * Check if product is in wishlist cookie
+ */
+export function isInWishlistCookie(productId: number): boolean {
+  return getWishlistFromCookie().includes(productId);
 }
 

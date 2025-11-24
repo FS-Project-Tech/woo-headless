@@ -51,27 +51,6 @@ export async function prefetchFeaturedProducts(
   return products;
 }
 
-/**
- * Prefetch on-sale products for ISR
- */
-export async function prefetchOnSaleProducts(
-  limit: number = 50
-): Promise<WooCommerceProduct[]> {
-  console.log(`[Prefetch] Fetching ${limit} on-sale products...`);
-  
-  const products = await prefetchProducts(
-    {
-      per_page: limit,
-      on_sale: true,
-      orderby: 'popularity',
-      order: 'desc',
-    },
-    { maxPages: 1 }
-  );
-  
-  console.log(`[Prefetch] Fetched ${products.length} on-sale products`);
-  return products;
-}
 
 /**
  * Prefetch all categories for ISR
@@ -117,12 +96,10 @@ export async function prefetchProductsByCategory(
 export async function prefetchAllWooData(options?: {
   maxPopularProducts?: number;
   maxFeaturedProducts?: number;
-  maxOnSaleProducts?: number;
   includeCategories?: boolean;
 }): Promise<{
   popularProducts: WooCommerceProduct[];
   featuredProducts: WooCommerceProduct[];
-  onSaleProducts: WooCommerceProduct[];
   categories: WooCommerceCategory[];
 }> {
   console.log('[Prefetch] Starting full WooCommerce data prefetch...');
@@ -130,12 +107,10 @@ export async function prefetchAllWooData(options?: {
   const [
     popularProducts,
     featuredProducts,
-    onSaleProducts,
     categories,
   ] = await Promise.allSettled([
     prefetchPopularProducts(options?.maxPopularProducts || 50),
     prefetchFeaturedProducts(options?.maxFeaturedProducts || 50),
-    prefetchOnSaleProducts(options?.maxOnSaleProducts || 50),
     options?.includeCategories !== false
       ? prefetchAllCategories()
       : Promise.resolve([]),
@@ -150,10 +125,6 @@ export async function prefetchAllWooData(options?: {
       featuredProducts.status === 'fulfilled'
         ? featuredProducts.value
         : [],
-    onSaleProducts:
-      onSaleProducts.status === 'fulfilled'
-        ? onSaleProducts.value
-        : [],
     categories:
       categories.status === 'fulfilled' ? categories.value : [],
   };
@@ -161,7 +132,6 @@ export async function prefetchAllWooData(options?: {
   console.log('[Prefetch] Completed WooCommerce data prefetch:', {
     popular: result.popularProducts.length,
     featured: result.featuredProducts.length,
-    onSale: result.onSaleProducts.length,
     categories: result.categories.length,
   });
   

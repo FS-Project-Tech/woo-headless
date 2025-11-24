@@ -5,6 +5,8 @@
 
 import type { CartItem } from "@/lib/types/cart";
 
+// Export all utilities for stable HMR
+
 /**
  * Calculate cart subtotal from items
  */
