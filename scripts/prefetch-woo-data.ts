@@ -12,14 +12,12 @@ async function main() {
     const data = await prefetchAllWooData({
       maxPopularProducts: 50,
       maxFeaturedProducts: 50,
-      maxOnSaleProducts: 50,
       includeCategories: true,
     });
     
     console.log('Prefetch completed successfully:', {
       popularProducts: data.popularProducts.length,
       featuredProducts: data.featuredProducts.length,
-      onSaleProducts: data.onSaleProducts.length,
       categories: data.categories.length,
     });
     
