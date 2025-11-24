@@ -37,7 +37,15 @@ export async function GET(req: NextRequest) {
     });
 
     if (!userResponse.ok) {
-      const errorText = await userResponse.text();
+      // Check if response body exists before reading
+      let errorText = '';
+      if (userResponse.body) {
+        try {
+          errorText = await userResponse.text();
+        } catch (e) {
+          // Ignore errors reading response body
+        }
+      }
       console.error('Profile GET: Failed to get user data', {
         status: userResponse.status,
         statusText: userResponse.statusText,
@@ -46,6 +54,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         { error: 'Failed to get user data', details: errorText },
         { status: 401 }
+      );
+    }
+
+    // Check if response body exists before reading
+    if (!userResponse.body) {
+      return NextResponse.json(
+        { error: 'No response body received' },
+        { status: 500 }
       );
     }
 

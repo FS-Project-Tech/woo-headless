@@ -33,8 +33,10 @@ async function getCategoriesWithImages(): Promise<Category[]> {
       count: cat.count || 0,
       image: cat.image?.src || cat.image_url || null,
     }));
-  } catch (error) {
-    console.error("Error fetching categories:", error);
+  } catch (error: any) {
+    // Error is already logged by the WooCommerce API interceptor
+    // Component handles empty array gracefully (returns null if no categories)
+    // No need to log again here to avoid duplicate console messages
     return [];
   }
 }
@@ -84,13 +86,17 @@ export default function CategoriesSection() {
                   <div className="flex flex-col h-full bg-white border-2 border-gray-100 hover:border-teal-300 shadow-sm hover:shadow-xl rounded-2xl overflow-hidden transition-all duration-300">
                     <div className="relative w-full h-40 shrink-0 flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-6">
                       <div className="absolute inset-0 bg-gradient-to-br from-teal-50/0 to-blue-50/0 group-hover:from-teal-50/50 group-hover:to-blue-50/50 transition-all duration-300"></div>
-                      <Image
-                        src={categoryImage}
-                        alt={category.name}
-                        width={120}
-                        height={120}
-                        className="object-contain relative z-10 max-h-full max-w-full group-hover:scale-110 transition-transform duration-300"
-                      />
+                      {categoryImage && categoryImage.trim() !== '' ? (
+                        <Image
+                          src={categoryImage}
+                          alt={category.name}
+                          width={120}
+                          height={120}
+                          className="object-contain relative z-10 max-h-full max-w-full group-hover:scale-110 transition-transform duration-300"
+                        />
+                      ) : (
+                        <div className="text-gray-400 text-xs">No Image</div>
+                      )}
                     </div>
                     <div className="p-5 flex-1 flex flex-col justify-center bg-white">
                       <h3 className="text-gray-900 font-semibold text-sm text-center leading-tight group-hover:text-teal-600 transition-colors">
@@ -125,7 +131,11 @@ export default function CategoriesSection() {
                   <div className="flex flex-col h-full bg-white border border-gray-200 hover:border-teal-400 shadow-sm hover:shadow-lg rounded-xl overflow-hidden transition-all duration-300">
                     <div className="relative w-full aspect-square shrink-0 flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-3">
                       <div className="absolute inset-0 bg-gradient-to-br from-teal-50/0 to-blue-50/0 group-hover:from-teal-50/50 group-hover:to-blue-50/50 transition-all duration-300"></div>
-                      <Image src={categoryImage} alt={category.name} width={100} height={100} className="object-contain relative z-10 max-h-full max-w-full group-hover:scale-110 transition-transform duration-300" />
+                      {categoryImage && categoryImage.trim() !== '' ? (
+                        <Image src={categoryImage} alt={category.name} width={100} height={100} className="object-contain relative z-10 max-h-full max-w-full group-hover:scale-110 transition-transform duration-300" />
+                      ) : (
+                        <div className="text-gray-400 text-xs">No Image</div>
+                      )}
                     </div>
                     <div className="p-2 bg-white">
                       <h3 className="text-center text-xs font-medium text-gray-900 leading-tight group-hover:text-teal-600 transition-colors">{category.name}</h3>

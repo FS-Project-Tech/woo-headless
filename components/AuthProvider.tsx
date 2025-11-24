@@ -25,9 +25,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchUser = useCallback(async () => {
+    // Only fetch in browser environment
+    if (typeof window === 'undefined') {
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await axios.get('/api/auth/me', {
         withCredentials: true,
+        timeout: 10000, // 10 second timeout
       });
       if (response.data && response.data.user) {
         setUser(response.data.user);
@@ -35,11 +42,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
       }
     } catch (error: any) {
-      // 401 or 404 means not authenticated - this is expected
-      if (error.response?.status === 401 || error.response?.status === 404) {
+      // Network errors or connection issues - silently treat as not authenticated
+      if (error.code === 'ERR_NETWORK' || error.message === 'Network Error' || !error.response) {
+        // Network error - likely API route not available or connection issue
+        // Silently treat as not authenticated (don't log to avoid noise)
         setUser(null);
-      } else {
-        console.error('Auth fetch error:', error);
+      }
+      // 401 or 404 means not authenticated - this is expected
+      else if (error.response?.status === 401 || error.response?.status === 404) {
+        setUser(null);
+      } 
+      // Other HTTP errors - log but still treat as not authenticated
+      else {
+        console.error('Auth fetch error:', error.response?.status || error.message);
         setUser(null);
       }
     } finally {
@@ -48,15 +63,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Always clear user state locally, even if API call fails
+    setUser(null);
+    
     try {
-      await axios.post('/api/auth/logout');
-      setUser(null);
-    } catch (error) {
-      console.error('Logout error:', error);
+      await axios.post('/api/auth/logout', {}, {
+        timeout: 5000,
+      });
+    } catch (error: any) {
+      // Silently handle network errors - user is already logged out locally
+      if (error.code !== 'ERR_NETWORK' && error.message !== 'Network Error') {
+        console.error('Logout error:', error.response?.status || error.message);
+      }
     }
   }, []);
 
   useEffect(() => {
+    // Only run in browser environment
+    if (typeof window === 'undefined') {
+      setLoading(false);
+      return;
+    }
+
     fetchUser();
     
     // Listen for storage events (login from another tab)

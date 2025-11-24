@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { unstable_cache } from "next/cache";
 import { fetchCategoryBySlug } from "@/lib/woocommerce";
 import { createPublicApiHandler, API_TIMEOUT } from "@/lib/api-middleware";
 import { sanitizeObject } from "@/lib/sanitize";
@@ -13,26 +12,14 @@ async function getCategoryBySlug(req: NextRequest) {
       return NextResponse.json({ category: null });
     }
     
-    // Use unstable_cache for server-side caching (10 minutes)
-    const getCachedCategory = unstable_cache(
-      async () => {
-        return await fetchCategoryBySlug(slug).catch(() => null);
-      },
-      [`category-${slug}`],
-      {
-        revalidate: 600, // 10 minutes
-        tags: ['categories'], // Cache tag for revalidation
-      }
-    );
-    
-    const category = await getCachedCategory();
+    // Fetch category directly
+    const category = await fetchCategoryBySlug(slug).catch(() => null);
     
     // Sanitize category data
     const sanitizedCategory = category ? sanitizeObject(category) : null;
     
-    // Set cache headers
+    // Set headers
     const headers = new Headers();
-    headers.set("Cache-Control", "public, s-maxage=600, stale-while-revalidate=1200");
     headers.set("Content-Type", "application/json");
     
     return NextResponse.json({ category: sanitizedCategory }, { headers });

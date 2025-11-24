@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import PrefetchLink from "@/components/PrefetchLink";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
@@ -16,26 +16,52 @@ export default function Footer() {
 	useEffect(() => {
 		setIsMounted(true);
 		// Load footer data after initial render to avoid blocking
+		let isMounted = true;
+		const abortController = new AbortController();
+		const timeoutId = setTimeout(() => abortController.abort(), 5000); // 5 second timeout
+		
 		const timer = setTimeout(async () => {
 			try {
-				const res = await fetch('/api/cms/header', { cache: 'no-store' });
-				if (!res.ok) throw new Error('Failed to fetch');
+				const res = await fetch('/api/cms/header', { 
+					cache: 'no-store',
+					signal: abortController.signal,
+				});
+				
+				if (!res.ok) {
+					throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+				}
+				
 				const json = await res.json();
 				// Use footer logo specifically, fallback to header logo if not set
-				setLogoUrl(json.footerLogo || json.logo || null);
-				setSiteName(json.siteName || 'WooCommerce Store');
-			} catch (error) {
-				console.error('Error fetching footer logo:', error);
+				if (isMounted) {
+					setLogoUrl(json.footerLogo || json.logo || null);
+					setSiteName(json.siteName || 'WooCommerce Store');
+				}
+			} catch (error: any) {
+				// Only log if it's not an abort error (timeout or component unmount)
+				if (error.name !== 'AbortError' && isMounted) {
+					// Silently handle errors - footer will show placeholder
+					console.debug('Footer: Could not load logo from API, using placeholder');
+				}
 				// On error, logo will remain null and show placeholder
-				setSiteName('WooCommerce Store');
+				if (isMounted) {
+					setSiteName('WooCommerce Store');
+				}
+			} finally {
+				clearTimeout(timeoutId);
 			}
 		}, 100); // Small delay to not block initial render
 		
-		return () => clearTimeout(timer);
+		return () => {
+			isMounted = false;
+			abortController.abort();
+			clearTimeout(timer);
+			clearTimeout(timeoutId);
+		};
 	}, []);
 
 	return (
-		<footer className="text-white border-t border-teal-700" style={{ backgroundColor: '#0f766e' }} suppressHydrationWarning>
+		<footer className="text-white border-t border-teal-600" style={{ backgroundColor: '#1f605f' }} suppressHydrationWarning>
 			<div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8 py-16" suppressHydrationWarning>
 				{/* 4 Column Layout */}
 				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12 mb-12" suppressHydrationWarning>
@@ -69,34 +95,34 @@ export default function Footer() {
 						<h3 className="text-white font-semibold text-lg mb-4">Menu</h3>
 						<ul className="space-y-3">
 							<li>
-								<Link href="/" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/" critical={true} className="text-white/80 hover:text-white transition-colors">
 									Home
-								</Link>
+								</PrefetchLink>
 							</li>
 							<li>
-								<Link href="/shop" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/shop" critical={true} className="text-white/80 hover:text-white transition-colors">
 									Shop
-								</Link>
+								</PrefetchLink>
 							</li>
 							<li>
-								<Link href="/catalogue" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/catalogue" critical={true} className="text-white/80 hover:text-white transition-colors">
 									Catalogue
-								</Link>
+								</PrefetchLink>
 							</li>
 							<li>
-								<Link href="/cart" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/cart" critical={true} className="text-white/80 hover:text-white transition-colors">
 									Cart
-								</Link>
+								</PrefetchLink>
 							</li>
 							<li>
-								<Link href="/dashboard/wishlist" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/dashboard/wishlist" critical={true} className="text-white/80 hover:text-white transition-colors">
 									Wishlist
-								</Link>
+								</PrefetchLink>
 							</li>
 							<li>
-								<Link href="/account" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/account" critical={true} className="text-white/80 hover:text-white transition-colors">
 									My Account
-								</Link>
+								</PrefetchLink>
 							</li>
 						</ul>
 					</div>
@@ -106,34 +132,34 @@ export default function Footer() {
 						<h3 className="text-white font-semibold text-lg mb-4">Quick Links</h3>
 						<ul className="space-y-3">
 							<li>
-								<Link href="/about" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/about" className="text-white/80 hover:text-white transition-colors">
 									About Us
-								</Link>
+								</PrefetchLink>
 							</li>
 							<li>
-								<Link href="/contact" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/contact" className="text-white/80 hover:text-white transition-colors">
 									Contact Us
-								</Link>
+								</PrefetchLink>
 							</li>
 							<li>
-								<Link href="/shipping" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/shipping" className="text-white/80 hover:text-white transition-colors">
 									Shipping & Returns
-								</Link>
+								</PrefetchLink>
 							</li>
 							<li>
-								<Link href="/privacy" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/privacy" className="text-white/80 hover:text-white transition-colors">
 									Privacy Policy
-								</Link>
+								</PrefetchLink>
 							</li>
 							<li>
-								<Link href="/terms" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/terms" className="text-white/80 hover:text-white transition-colors">
 									Terms & Conditions
-								</Link>
+								</PrefetchLink>
 							</li>
 							<li>
-								<Link href="/faq" className="text-white/80 hover:text-white transition-colors">
+								<PrefetchLink href="/faq" className="text-white/80 hover:text-white transition-colors">
 									FAQ
-								</Link>
+								</PrefetchLink>
 							</li>
 						</ul>
 					</div>
@@ -244,12 +270,12 @@ export default function Footer() {
 							© {currentYear} WooCommerce Headless Store. All rights reserved.
 						</p>
 						<div className="flex gap-6 text-sm text-white/90" suppressHydrationWarning>
-							<Link href="/privacy" className="hover:text-white transition-colors">
+							<PrefetchLink href="/privacy" className="hover:text-white transition-colors">
 								Privacy Policy
-							</Link>
-							<Link href="/terms" className="hover:text-white transition-colors">
+							</PrefetchLink>
+							<PrefetchLink href="/terms" className="hover:text-white transition-colors">
 								Terms of Service
-							</Link>
+							</PrefetchLink>
 						</div>
 					</div>
 				</div>

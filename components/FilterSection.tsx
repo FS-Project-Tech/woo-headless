@@ -1,40 +1,41 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { ReactNode } from 'react';
 
 interface FilterSectionProps {
   title: string;
   isExpanded: boolean;
   onToggle: () => void;
-  children: React.ReactNode;
   count?: number;
+  children: ReactNode;
 }
 
 export default function FilterSection({
   title,
   isExpanded,
   onToggle,
-  children,
   count = 0,
+  children,
 }: FilterSectionProps) {
   return (
     <div className="border-b border-gray-200 pb-4">
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between py-2 text-left"
+        className="w-full flex items-center justify-between py-2 text-left hover:text-gray-900 transition-colors"
+        aria-expanded={isExpanded}
       >
-        <span className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
+        <span className="font-medium text-gray-900 flex items-center gap-2">
           {title}
           {count > 0 && (
-            <span className="ml-2 text-xs font-normal text-gray-500 normal-case">
-              ({count})
+            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+              {count}
             </span>
           )}
         </span>
-        <motion.svg
-          animate={{ rotate: isExpanded ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
-          className="w-4 h-4 text-gray-500"
+        <svg
+          className={`h-5 w-5 text-gray-500 transition-transform ${
+            isExpanded ? 'rotate-180' : ''
+          }`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -45,21 +46,9 @@ export default function FilterSection({
             strokeWidth={2}
             d="M19 9l-7 7-7-7"
           />
-        </motion.svg>
+        </svg>
       </button>
-      <AnimatePresence initial={false}>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="pt-3">{children}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {isExpanded && <div className="mt-2">{children}</div>}
     </div>
   );
 }

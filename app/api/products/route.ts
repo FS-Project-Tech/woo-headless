@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { unstable_cache } from "next/cache";
 import wcAPI from "@/lib/woocommerce";
 import { createPublicApiHandler, API_TIMEOUT } from "@/lib/api-middleware";
 import { sanitizeResponse, sanitizeProduct } from "@/lib/sanitize";
+import { optimizeProductParams, monitorPayloadSize } from "@/lib/api-optimizer";
+import { cacheGet, cacheSet, cacheInvalidate } from "@/lib/cache/redis-enhanced";
+import { requestBatcher } from "@/lib/api-batcher";
 
 /**
  * GET /api/products
- * Fetch products with caching headers for performance
- * Uses next/cache() for server-side caching
+ * Fetch products
  * Protected with rate limiting and response sanitization
  */
 async function getProducts(req: NextRequest) {
@@ -24,14 +25,21 @@ async function getProducts(req: NextRequest) {
     }
     if (searchParams.get("categorySlug")) {
       // Fetch category ID from slug first
+      const categorySlug = searchParams.get("categorySlug");
       try {
         const catRes = await wcAPI.get("/products/categories", {
-          params: { slug: searchParams.get("categorySlug") },
+          params: { slug: categorySlug },
         });
         if (catRes.data && catRes.data.length > 0) {
           params.category = catRes.data[0].id;
+        } else {
+          // Category not found - log warning but continue without category filter
+          console.warn(`Category not found for slug: ${categorySlug}`);
         }
-      } catch {}
+      } catch (error: any) {
+        // Log error but continue - will return all products if category lookup fails
+        console.warn(`Failed to lookup category by slug "${categorySlug}":`, error.message || error);
+      }
     }
     if (searchParams.get("categories")) {
       params.category = searchParams.get("categories");
@@ -110,27 +118,30 @@ async function getProducts(req: NextRequest) {
       params.include = searchParams.get("include");
     }
 
-    // Create cache key from params
-    const cacheKey = `products-${JSON.stringify(params)}`;
+    // Optimize parameters with field selection
+    const useCase = searchParams.get("search") ? "search" : "list";
+    const optimizedParams = optimizeProductParams(params, useCase);
     
-    // Use unstable_cache for server-side caching (5 minutes)
-    const getCachedProducts = unstable_cache(
-      async () => {
-        const response = await wcAPI.get("/products", { params });
-        return {
-          products: response.data || [],
-          total: parseInt(response.headers["x-wp-total"] || "0"),
-          totalPages: parseInt(response.headers["x-wp-totalpages"] || "1"),
-        };
-      },
-      [cacheKey],
-      {
-        revalidate: 300, // 5 minutes
-        tags: ['products'], // Cache tag for revalidation
-      }
-    );
+    // Generate cache key
+    const cacheKey = JSON.stringify(optimizedParams);
+    
+    // Try cache first
+    const cached = await cacheGet("products", cacheKey, optimizedParams);
+    if (cached) {
+      monitorPayloadSize("/api/products", cached);
+      return NextResponse.json(cached);
+    }
 
-    const data = await getCachedProducts();
+    // Fetch products with batching and deduplication
+    const response = await requestBatcher.batch(
+      `products:${cacheKey}`,
+      () => wcAPI.get("/products", { params: optimizedParams })
+    );
+    const data = {
+      products: response.data || [],
+      total: parseInt(response.headers["x-wp-total"] || "0"),
+      totalPages: parseInt(response.headers["x-wp-totalpages"] || "1"),
+    };
     
     // Sanitize product data
     const sanitizedProducts = Array.isArray(data.products)
@@ -143,13 +154,18 @@ async function getProducts(req: NextRequest) {
       totalPages: data.totalPages,
     };
     
+    // Cache the response
+    await cacheSet("products", cacheKey, sanitizedData, optimizedParams, ["products"]);
+    
+    // Monitor payload size
+    monitorPayloadSize("/api/products", sanitizedData);
+    
     // Log response for debugging
     const productCount = sanitizedProducts.length;
     console.log(`API Products - Found ${productCount} products (total: ${sanitizedData.total})`);
 
-    // Set cache headers for performance
+    // Set headers
     const headers = new Headers();
-    headers.set("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
     headers.set("Content-Type", "application/json");
 
     return NextResponse.json(sanitizedData, { headers });

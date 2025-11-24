@@ -188,23 +188,42 @@ export const API_TIMEOUT = {
 };
 
 /**
- * Create timeout promise
+ * Create timeout promise with cleanup
  */
-export function createTimeout(timeoutMs: number): Promise<never> {
+export function createTimeout(timeoutMs: number, operationName?: string): Promise<never> {
   return new Promise((_, reject) => {
-    setTimeout(() => {
-      reject(new Error(`Request timeout after ${timeoutMs}ms`));
+    const timeoutId = setTimeout(() => {
+      const errorMessage = operationName
+        ? `Request timeout after ${timeoutMs}ms for operation: ${operationName}`
+        : `Request timeout after ${timeoutMs}ms`;
+      reject(new Error(errorMessage));
     }, timeoutMs);
+    
+    // Store timeout ID for potential cleanup (though we can't access it after Promise.race)
+    // This is mainly for future enhancement with AbortController
   });
 }
 
 /**
  * Execute with timeout
+ * Note: The original promise will continue running even after timeout.
+ * For proper cancellation, use AbortController in the underlying fetch/axios calls.
  */
 export async function withTimeout<T>(
   promise: Promise<T>,
-  timeoutMs: number = API_TIMEOUT.DEFAULT
+  timeoutMs: number = API_TIMEOUT.DEFAULT,
+  operationName?: string
 ): Promise<T> {
-  return Promise.race([promise, createTimeout(timeoutMs)]);
+  const timeoutPromise = createTimeout(timeoutMs, operationName);
+  
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } catch (error) {
+    // If it's a timeout error, log additional context
+    if (error instanceof Error && error.message.includes('timeout')) {
+      console.warn(`[Timeout] Operation "${operationName || 'unknown'}" exceeded ${timeoutMs}ms`);
+    }
+    throw error;
+  }
 }
 

@@ -100,13 +100,23 @@ export default function FilterSidebar({ categorySlug }: FilterSidebarProps) {
         ]);
 
         if (categoriesRes?.ok) {
-          const catData = await categoriesRes.json();
+          let catData: any = null;
+          try {
+            catData = await categoriesRes.json();
+          } catch (err) {
+            console.warn("Failed to parse categories response:", err);
+          }
           setFilterData((prev) => ({ ...prev, categories: catData.categories || [] }));
           setCategoriesLoaded(true);
         }
 
         if (priceRes?.ok) {
-          const priceData = await priceRes.json();
+          let priceData: any = null;
+          try {
+            priceData = await priceRes.json();
+          } catch (err) {
+            console.warn("Failed to parse price response:", err);
+          }
           setFilterData((prev) => ({
             ...prev,
             priceRange: { min: priceData.min || 0, max: priceData.max || 1000 },
@@ -442,9 +452,13 @@ function CategoryFilter({
       if (!categoryChildren[categoryId]) {
         try {
           const res = await fetch(`/api/filters/categories?category=${encodeURIComponent(categorySlug)}`);
-          const json = await res.json();
-          setCategoryChildren((prev) => ({ ...prev, [categoryId]: json.categories || [] }));
-        } catch {
+          if (!res.ok) {
+            throw new Error(`Failed to load child categories (${res.status})`);
+          }
+          const json = await res.json().catch(() => null);
+          setCategoryChildren((prev) => ({ ...prev, [categoryId]: json?.categories || [] }));
+        } catch (error) {
+          console.warn("Failed to load child categories:", error);
           setCategoryChildren((prev) => ({ ...prev, [categoryId]: [] }));
         }
       }
@@ -485,7 +499,7 @@ function CategoryFilter({
                   <button
                     type="button"
                     onClick={(e) => toggleExpand(cat.id, categorySlug, e)}
-                    className="ml-2 p-0.5 text-gray-400 hover:text-gray-600 flex-shrink-0"
+                    className="ml-2 p-0.5 text-gray-400 hover:text-gray-600 shrink-0"
                     aria-label={isExpanded ? "Collapse" : "Expand"}
                   >
                     <svg

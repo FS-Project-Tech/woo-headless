@@ -12,6 +12,33 @@ function getWpBase(): string | null {
   }
 }
 
+/**
+ * Fetch with timeout using AbortController
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = 5000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  }
+}
+
 async function getHeaderData(req: NextRequest) {
   // Read environment variables (server-side only)
   const fallback = {
@@ -27,9 +54,13 @@ async function getHeaderData(req: NextRequest) {
     return NextResponse.json(fallback, { headers: { 'Cache-Control': 'no-store' } });
   }
 
-  // Try ACF Options endpoint first
+  // Try ACF Options endpoint first (5 second timeout per fetch)
   try {
-    const res = await fetch(`${base}/wp-json/acf/v3/options/options`, { cache: 'no-store' });
+    const res = await fetchWithTimeout(
+      `${base}/wp-json/acf/v3/options/options`,
+      { cache: 'no-store' },
+      5000
+    );
     if (res.ok) {
       const json: any = await res.json();
       const fields = json?.acf || {};
@@ -42,9 +73,13 @@ async function getHeaderData(req: NextRequest) {
     }
   } catch {}
 
-  // Fallback to a "home" page ACF
+  // Fallback to a "home" page ACF (5 second timeout)
   try {
-    const res = await fetch(`${base}/wp-json/wp/v2/pages?slug=home&_fields=acf`, { cache: 'no-store' });
+    const res = await fetchWithTimeout(
+      `${base}/wp-json/wp/v2/pages?slug=home&_fields=acf`,
+      { cache: 'no-store' },
+      5000
+    );
     if (res.ok) {
       const arr: any[] = await res.json();
       const acf = arr?.[0]?.acf || {};
@@ -57,10 +92,14 @@ async function getHeaderData(req: NextRequest) {
     }
   } catch {}
 
-  // Try to get site name from WordPress general settings
+  // Try to get site name from WordPress general settings (5 second timeout)
   let siteName = fallback.siteName;
   try {
-    const settingsRes = await fetch(`${base}/wp-json/wp/v2/settings`, { cache: 'no-store' });
+    const settingsRes = await fetchWithTimeout(
+      `${base}/wp-json/wp/v2/settings`,
+      { cache: 'no-store' },
+      5000
+    );
     if (settingsRes.ok) {
       const settings: any = await settingsRes.json();
       siteName = settings?.name || siteName;

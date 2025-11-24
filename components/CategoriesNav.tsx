@@ -1,4 +1,4 @@
-import Link from "next/link";
+import PrefetchLink from "@/components/PrefetchLink";
 import { fetchCategories } from "@/lib/woocommerce";
 import { Suspense } from "react";
 import AllCategoriesDrawer from "@/components/AllCategoriesDrawer";
@@ -27,31 +27,28 @@ async function CategoriesNavContent() {
                     </li>
                     {/* Only the requested fixed links */}
                     <li className="shrink-0">
-                        <Link href="/product-category/continence-care" className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Continence care</Link>
+                        <PrefetchLink href="/product-category/continence-care" prefetch={true} className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Continence care</PrefetchLink>
                     </li>
                     <li className="shrink-0">
-                        <Link href="/product-category/urinary-care" className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Urinary care</Link>
+                        <PrefetchLink href="/product-category/urinary-care" prefetch={true} className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Urinary care</PrefetchLink>
                     </li>
                     <li className="shrink-0">
-                        <Link href="/product-category/wound-care" className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Wound care</Link>
+                        <PrefetchLink href="/product-category/wound-care" prefetch={true} className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Wound care</PrefetchLink>
                     </li>
                     <li className="shrink-0">
-                        <Link href="/product-category/skin-care" className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Skin care</Link>
+                        <PrefetchLink href="/product-category/skin-care" prefetch={true} className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Skin care</PrefetchLink>
                     </li>
                     <li className="shrink-0">
-                        <Link href="/product-category/nutrition" className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Nutrition</Link>
+                        <PrefetchLink href="/product-category/nutrition" prefetch={true} className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Nutrition</PrefetchLink>
                     </li>
                     <li className="shrink-0">
-                        <Link href="/product-category/feeding-tube" className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Feeding tube</Link>
+                        <PrefetchLink href="/product-category/feeding-tube" prefetch={true} className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Feeding tube</PrefetchLink>
                     </li>
                     <li className="shrink-0">
-                        <Link href="/#ndis" className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">NDIS</Link>
+                        <PrefetchLink href="/#ndis" className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">NDIS</PrefetchLink>
                     </li>
                     <li className="shrink-0">
-                        <Link href="/shop" className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Brands</Link>
-                    </li>
-                    <li className="shrink-0">
-                        <Link href="/shop?on_sale=true" className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Clearance</Link>
+                        <PrefetchLink href="/shop" critical={true} className="inline-flex items-center px-3 py-1.5 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">Brands</PrefetchLink>
                     </li>
                 </ul>
             </div>

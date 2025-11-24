@@ -1,9 +1,21 @@
 "use client";
 
 import { useState, useEffect, useMemo, Suspense } from "react";
+import dynamic from "next/dynamic";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import ProductGrid from "@/components/ProductGrid";
-import FilterSidebar from "@/components/FilterSidebar";
+
+// Dynamically import FilterSidebar - heavy component with filters and sliders
+const FilterSidebar = dynamic(() => import("@/components/FilterSidebar"), {
+  loading: () => (
+    <div className="w-full lg:w-64 space-y-4">
+      <div className="h-8 bg-gray-200 rounded animate-pulse"></div>
+      <div className="h-32 bg-gray-200 rounded animate-pulse"></div>
+      <div className="h-32 bg-gray-200 rounded animate-pulse"></div>
+    </div>
+  ),
+  ssr: false, // Client-side only for filters
+});
 
 // Loading skeleton for ProductGrid
 function ProductGridSkeleton() {

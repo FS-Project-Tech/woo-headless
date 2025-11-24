@@ -77,7 +77,8 @@ export function createApiHandler<T = any>(
       // Execute handler with timeout
       const timeout = options.timeout || API_TIMEOUT_CONFIG.DEFAULT;
       const handlerPromise = handler(req, { user, token });
-      const response = await withTimeout(handlerPromise, timeout);
+      const operationName = `${req.method} ${req.nextUrl.pathname}`;
+      const response = await withTimeout(handlerPromise, timeout, operationName);
 
       // Sanitize response if enabled
       if (options.sanitize && response) {

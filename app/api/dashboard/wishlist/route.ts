@@ -136,28 +136,42 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       let errorMessage = `Failed to ${isRemove ? 'remove from' : 'add to'} wishlist`;
-      try {
-        const error = await response.json();
-        errorMessage = error.message || error.error || errorMessage;
-        console.error('WordPress wishlist API error:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: error,
-          endpoint: endpoint,
-        });
-      } catch (e) {
-        const errorText = await response.text();
-        console.error('WordPress wishlist API error (non-JSON):', {
-          status: response.status,
-          statusText: response.statusText,
-          errorText: errorText,
-          endpoint: endpoint,
-        });
-        errorMessage = errorText || errorMessage;
+      if (response.body) {
+        try {
+          const error = await response.json();
+          errorMessage = error.message || error.error || errorMessage;
+          console.error('WordPress wishlist API error:', {
+            status: response.status,
+            statusText: response.statusText,
+            error: error,
+            endpoint: endpoint,
+          });
+        } catch (e) {
+          try {
+            const errorText = await response.text();
+            console.error('WordPress wishlist API error (non-JSON):', {
+              status: response.status,
+              statusText: response.statusText,
+              errorText: errorText,
+              endpoint: endpoint,
+            });
+            errorMessage = errorText || errorMessage;
+          } catch (textError) {
+            // Response body couldn't be read, use default message
+          }
+        }
       }
       return NextResponse.json(
         { error: errorMessage },
         { status: response.status }
+      );
+    }
+
+    // Check if response body exists before reading
+    if (!response.body) {
+      return NextResponse.json(
+        { error: 'No response body received from wishlist API' },
+        { status: 500 }
       );
     }
 
