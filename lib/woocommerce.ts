@@ -330,6 +330,8 @@ export interface WooCommerceVariation {
   regular_price: string;
   sale_price: string;
   on_sale: boolean;
+  tax_status?: string;
+  tax_class?: string;
   image?: { id: number; src: string; name: string; alt: string } | null;
   attributes: WooCommerceVariationAttribute[];
   stock_status: string;

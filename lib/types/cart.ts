@@ -15,5 +15,9 @@ export interface CartItem {
 	sku?: string | null;
 	attributes?: { [name: string]: string };
 	deliveryPlan?: "none" | "7" | "14" | "30";
+	/** WooCommerce tax class slug or name, e.g. 'gst-10', 'gst-free' */
+	tax_class?: string;
+	/** WooCommerce tax status, e.g. 'taxable', 'none' */
+	tax_status?: string;
 }
 
