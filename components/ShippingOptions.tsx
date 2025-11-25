@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { sanitizeString } from "@/lib/sanitize";
 
 interface ShippingRate {
   id: string;
@@ -40,6 +41,7 @@ export default function ShippingOptions({
   const [rates, setRates] = useState<ShippingRate[]>([]);
   const [loadingRates, setLoadingRates] = useState(false);
   const [internalSelectedId, setInternalSelectedId] = useState<string>("");
+  const serializedItems = useMemo(() => JSON.stringify(items ?? []), [items]);
 
   // Use controlled or internal state
   const currentSelectedId = selectedRateId !== undefined ? selectedRateId : internalSelectedId;
@@ -62,7 +64,7 @@ export default function ShippingOptions({
           params.set("subtotal", subtotal.toString());
         }
         if (items.length > 0) {
-          params.set("items", JSON.stringify(items));
+          params.set("items", serializedItems);
         }
 
         const res = await fetch(`/api/shipping/rates?${params.toString()}`, { cache: "no-store" });
@@ -95,7 +97,7 @@ export default function ShippingOptions({
     return () => {
       cancelled = true;
     };
-  }, [country, zone, postcode, state, subtotal, items, selectedRateId, onRateChange]);
+  }, [country, zone, postcode, state, subtotal, serializedItems]);
 
   const handleRateChange = (rate: ShippingRate) => {
     if (selectedRateId === undefined) {
@@ -140,32 +142,45 @@ export default function ShippingOptions({
         <div className="text-sm text-gray-500 py-2">No shipping rates found</div>
       )}
       <div className="space-y-2">
-        {rates.map((r) => (
-          <label
-            key={r.id}
-            className="flex cursor-pointer items-center gap-3 p-3 rounded-lg border-2 transition-all hover:bg-white hover:border-teal-300"
-            style={{ borderColor: currentSelectedId === r.id ? "#14b8a6" : "#e5e7eb" }}
-          >
-            <input
-              type="radio"
-              name="shipping-rate"
-              value={r.id}
-              checked={currentSelectedId === r.id}
-              onChange={() => handleRateChange(r)}
-              className="h-4 w-4 text-teal-600 focus:ring-teal-500"
-            />
-            <div className="flex-1">
-              <div className="text-sm font-medium text-gray-900">{r.label}</div>
-              {r.description && <div className="text-xs text-gray-500">{r.description}</div>}
-              {r.minimum_amount && (
-                <div className="text-xs text-gray-500 mt-0.5">
-                  Min. order: ${r.minimum_amount.toFixed(2)}
+        {rates.map((r) => {
+          const safeLabel = sanitizeString(r.label || "");
+          const safeDescription = r.description ? sanitizeString(r.description) : "";
+          const isSelected = currentSelectedId === r.id;
+          const isFree = Number(r.cost) === 0;
+          return (
+            <label
+              key={r.id}
+              className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 bg-white/60 p-3 transition-all ${
+                isSelected ? "border-teal-500 shadow-sm bg-white" : "border-gray-200 hover:border-teal-200"
+              }`}
+            >
+              <input
+                type="radio"
+                name="shipping-rate"
+                value={r.id}
+                checked={isSelected}
+                onChange={() => handleRateChange(r)}
+                className="h-4 w-4 text-teal-600 focus:ring-teal-500"
+                aria-label={`Select ${safeLabel}`}
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-semibold text-gray-900">{safeLabel || "Shipping option"}</div>
+                  {isFree && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">Free</span>}
                 </div>
-              )}
-            </div>
-            <div className="text-sm font-semibold text-gray-900">${r.cost.toFixed(2)}</div>
-          </label>
-        ))}
+                {safeDescription && <div className="text-xs text-gray-500 mt-0.5">{safeDescription}</div>}
+                {r.minimum_amount && (
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    Min. order: ${r.minimum_amount.toFixed(2)}
+                  </div>
+                )}
+              </div>
+              <div className="text-sm font-bold text-gray-900">
+                {isFree ? "Free" : `$${r.cost.toFixed(2)}`}
+              </div>
+            </label>
+          );
+        })}
       </div>
     </div>
   );

@@ -5,33 +5,15 @@ import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import ProductGrid from "@/components/ProductGrid";
+import ProductGridSkeleton from "@/components/skeletons/ProductGridSkeleton";
+import FilterSidebarSkeleton from "@/components/skeletons/FilterSidebarSkeleton";
+import Container from "@/components/Container";
 
 // Dynamically import FilterSidebar - heavy component with filters and sliders
 const FilterSidebar = dynamic(() => import("@/components/FilterSidebar"), {
-  loading: () => (
-    <div className="w-full lg:w-64 space-y-4">
-      <div className="h-8 bg-gray-200 rounded animate-pulse"></div>
-      <div className="h-32 bg-gray-200 rounded animate-pulse"></div>
-      <div className="h-32 bg-gray-200 rounded animate-pulse"></div>
-    </div>
-  ),
+  loading: () => <FilterSidebarSkeleton />,
   ssr: false, // Client-side only for filters
 });
-
-// Loading skeleton for ProductGrid
-function ProductGridSkeleton() {
-  return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-      {Array.from({ length: 12 }).map((_, i) => (
-        <div key={i} className="animate-pulse">
-          <div className="bg-gray-200 aspect-square rounded-lg mb-3"></div>
-          <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export default function ProductsPageClient() {
   const searchParams = useSearchParams();
@@ -65,7 +47,7 @@ export default function ProductsPageClient() {
 
   return (
     <div className="min-h-screen py-12" suppressHydrationWarning>
-      <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8" suppressHydrationWarning>
+      <Container suppressHydrationWarning>
         <Breadcrumbs items={[
           { label: 'Home', href: '/' }, 
           isSearchPage ? { label: `Search: ${searchQuery}`, href: `/?Search=${encodeURIComponent(searchQuery || '')}` } : { label: 'Shop' }
@@ -95,7 +77,7 @@ export default function ProductsPageClient() {
             </Suspense>
           </div>
         </div>
-      </div>
+      </Container>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { useState, useEffect, type MouseEvent } from "react";
 import { useCart } from "@/components/CartProvider";
 import { useToast } from "@/components/ToastProvider";
 import { useWishlist } from "@/components/WishlistProvider";
+import { formatPriceWithLabel } from "@/lib/format-utils";
 
 export interface ProductCardProps {
 	id: number;
@@ -20,6 +21,8 @@ export interface ProductCardProps {
 	imageAlt?: string;
 	/** WooCommerce tax class slug or name, e.g. 'gst-10', 'gst-free' */
 	tax_class?: string;
+	/** WooCommerce tax status, e.g. 'taxable', 'none' */
+	tax_status?: string;
 	average_rating?: string;
 	rating_count?: number;
 }
@@ -73,6 +76,8 @@ export default function ProductCard(props: ProductCardProps) {
 				price: props.sale_price || props.price || "0",
 				qty: 1,
 				sku: props.sku || undefined,
+				tax_class: props.tax_class || undefined,
+				tax_status: props.tax_status || undefined,
 			});
 
 			openCart();
@@ -126,7 +131,7 @@ export default function ProductCard(props: ProductCardProps) {
 			<div className="flex flex-1 flex-col space-y-2 px-3 pt-3 pb-3 md:px-4 md:pt-4 md:pb-4">
 				{/* Info block with fixed min-height to align pricing across cards */}
 				<div className="min-h-[72px] md:min-h-[88px]">
-					<Link href={productUrl} className="line-clamp-2 text-sm md:text-base font-medium text-[#333333]">
+					<Link href={productUrl} className="text-sm md:text-base font-medium text-[#333333]">
 						{props.name}
 					</Link>
 					{subtitle && <div className="text-[11px] md:text-xs text-gray-500">SKU: {subtitle}</div>}
@@ -150,73 +155,58 @@ export default function ProductCard(props: ProductCardProps) {
 					</div>
 				</div>
 				{/* Pricing + actions pinned to bottom */}
-				<div className="mt-auto flex items-end justify-between gap-3">
+				<div className="mt-auto">
 					{/* Pricing with WooCommerce tax class mapping */}
-					<div className="text-[13px] md:text-sm text-gray-900">
+					<div className="mb-3 text-[13px] md:text-sm text-gray-900">
 						{(() => {
 							const reg = Number(props.regular_price || 0);
 							const sale = Number(props.sale_price || props.price || 0);
 							const raw = sale; // effective current price
 							if (isNaN(raw) || raw <= 0) return <span className="font-semibold">$0.00</span>;
 
-							const taxClassSlug = (props.tax_class || "").toLowerCase().replace(/\s+/g, "-");
-							// Map known classes
-							const isGstFree = taxClassSlug === "gst-free" || taxClassSlug === "gstfree";
-							const isGst10 = taxClassSlug === "gst-10" || taxClassSlug === "gst10" || taxClassSlug === "gst";
+							const priceInfo = formatPriceWithLabel(raw, props.tax_class, props.tax_status);
+							const isOnSale = props.on_sale && reg > 0 && reg > raw;
 
-							if (isGst10) {
-								const excl = raw;
-								const incl = raw * 1.10;
+							if (priceInfo.taxType === "gst_free") {
 								return (
 									<div className="space-y-0.5">
-										<div className="text-sm md:text-base font-bold text-emerald-700">Incl. GST: ${incl.toFixed(2)}</div>
-										<div className="text-[11px] md:text-xs text-gray-600">Excl. GST: ${excl.toFixed(2)}</div>
-										{props.on_sale && reg > 0 && reg > raw ? (
-											<div>
-												<div className="text-xs text-red-500 line-through">${reg.toFixed(2)}</div>
-												<div className="mt-1 inline-flex items-center rounded bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">On Sale</div>
-											</div>
-										) : null}
+										{isOnSale && (
+											<div className="text-xs text-gray-500 line-through">${reg.toFixed(2)}</div>
+										)}
+										<div className="text-sm md:text-base font-bold text-emerald-700">
+											{priceInfo.label}: {priceInfo.price}
+										</div>
+										{isOnSale && (
+											<div className="mt-1 inline-flex items-center rounded bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">On Sale</div>
+										)}
 									</div>
 								);
 							}
 
-							if (isGstFree) {
-								return (
-									<div className="space-y-0.5">
-									<div className="text-sm md:text-base font-bold text-emerald-700">${raw.toFixed(2)}</div>
-										<div className="text-[11px] inline-flex items-center rounded bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">GST FREE</div>
-										{props.on_sale && reg > raw ? (
-											<div>
-												<div className="text-xs text-red-500 line-through">${reg.toFixed(2)}</div>
-												<div className="mt-1 inline-flex items-center rounded bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">On Sale</div>
-											</div>
-										) : null}
-									</div>
-								);
-							}
-
-							// Default: show normal price only
 							return (
 								<div className="space-y-0.5">
-									<div className="text-sm md:text-base font-bold text-emerald-700">${raw.toFixed(2)}</div>
-									{props.on_sale && reg > 0 && reg > raw ? (
-										<div>
-											<div className="text-xs text-red-500 line-through">${reg.toFixed(2)}</div>
-											<div className="mt-1 inline-flex items-center rounded bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">On Sale</div>
-										</div>
+									{isOnSale && (
+										<div className="text-xs text-gray-500 line-through">${reg.toFixed(2)}</div>
+									)}
+									<div className="text-sm md:text-base font-bold text-emerald-700">
+										{priceInfo.label}: {priceInfo.price}
+									</div>
+									{priceInfo.exclPrice ? (
+										<div className="text-[11px] md:text-xs text-gray-600">Excl. GST: {priceInfo.exclPrice}</div>
 									) : null}
+									{isOnSale && (
+										<div className="mt-1 inline-flex items-center rounded bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">On Sale</div>
+									)}
 								</div>
 							);
 						})()}
 					</div>
-        </div>
-        <div className="mt-auto flex items-end justify-between gap-3">
-          <div className="flex items-center gap-2">
+					{/* Actions: Add to cart (left) and Wishlist (right) */}
+					<div className="flex items-center justify-between gap-3">
 						<button
 							onClick={handleAddToCart}
 							disabled={addingToCart}
-							className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[#1f605f] px-4 py-2.5 text-xs md:text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+							className="inline-flex items-center justify-center gap-2 rounded-full bg-[#1f605f] px-4 py-2.5 text-xs md:text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							{addingToCart ? (
 								<>
@@ -251,7 +241,7 @@ export default function ProductCard(props: ProductCardProps) {
 							</svg>
 						</button>
 					</div>
-        </div>
+				</div>
 
 			</div>
 

@@ -8,11 +8,11 @@ import Image from "next/image";
 import dynamic from "next/dynamic";
 import CouponInput from "./CouponInput";
 import { useCoupon } from "./CouponProvider";
-import ShippingOptions from "./ShippingOptions";
 import { useShippingAddress } from "@/hooks/useShippingAddress";
 import { parseCartTotal, calculateTotal } from "@/lib/cart-utils";
-import { formatPrice } from "@/lib/format-utils";
+import { formatPrice, formatPriceWithLabel } from "@/lib/format-utils";
 import { getDeliveryFrequencyLabel } from "@/lib/delivery-utils";
+import { sanitizeString } from "@/lib/sanitize";
 
 // Dynamically import RequestQuoteModal - only needed when quote button is clicked
 // Using a function to ensure stable module resolution during HMR
@@ -24,8 +24,34 @@ const RequestQuoteModal = dynamic(
   }
 );
 
+const ShippingOptionsSkeleton = () => (
+  <div className="space-y-2" aria-hidden="true">
+    {Array.from({ length: 2 }).map((_, idx) => (
+      <div key={idx} className="h-14 rounded-xl bg-gray-100 animate-pulse" />
+    ))}
+  </div>
+);
+
+const ShippingOptions = dynamic(
+  () => import("@/components/ShippingOptions"),
+  {
+    ssr: false,
+    loading: () => <ShippingOptionsSkeleton />,
+  }
+);
+
 // Memoized cart item component to prevent unnecessary re-renders
 const CartItem = memo(({ item, onRemove, onUpdateQty }: { item: any; onRemove: (id: string) => void; onUpdateQty: (id: string, qty: number) => void }) => {
+  const safeName = useMemo(() => sanitizeString(item?.name || ""), [item?.name]);
+  const safeSku = useMemo(() => sanitizeString(item?.sku || ""), [item?.sku]);
+  const normalizedAttributes = useMemo(() => {
+    if (!item?.attributes) return [];
+    return Object.entries(item.attributes).map(([key, value]) => ({
+      key: sanitizeString(String(key)),
+      value: sanitizeString(String(value)),
+    }));
+  }, [item?.attributes]);
+
   const handleQtyChange = (newQty: number) => {
     const qty = Math.max(1, Math.floor(newQty));
     onUpdateQty(item.id, qty);
@@ -42,75 +68,92 @@ const CartItem = memo(({ item, onRemove, onUpdateQty }: { item: any; onRemove: (
   };
 
   return (
-    <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md bg-gray-200">
-        {item.imageUrl && item.imageUrl.trim() !== '' ? (
-          <Image src={item.imageUrl} alt={item.name} fill sizes="64px" className="object-cover" />
+    <div className="flex items-start gap-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-sm ring-1 ring-transparent transition hover:ring-teal-100">
+      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-gray-100">
+        {item.imageUrl && item.imageUrl.trim() !== "" ? (
+          <Image src={item.imageUrl} alt={safeName || "Cart item"} fill sizes="80px" className="object-cover" />
         ) : (
           <div className="grid h-full w-full place-items-center text-xs text-gray-400">No Image</div>
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <h3 className="text-sm font-semibold text-gray-900 line-clamp-2 mb-0.5">{item.name}</h3>
-        {item.sku && (
-          <p className="text-xs text-gray-500 mb-1">SKU: {item.sku}</p>
+        <h3 className="text-sm font-semibold text-gray-900 line-clamp-2">{safeName || "Unnamed product"}</h3>
+        {safeSku && (
+          <p className="text-xs text-gray-500 mt-0.5">SKU: {safeSku}</p>
         )}
-        {item.attributes && Object.keys(item.attributes).length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-1.5">
-            {Object.entries(item.attributes).map(([k, v]) => (
-              <span key={k} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-gray-200 text-gray-700">
-                {k}: {v}
+        {normalizedAttributes.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {normalizedAttributes.map((attr) => (
+              <span key={`${attr.key}-${attr.value}`} className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600">
+                {attr.key}: {attr.value}
               </span>
             ))}
           </div>
         )}
-        {item.deliveryPlan && item.deliveryPlan !== 'none' && (
-          <div className="text-xs text-gray-600 mb-1.5">
-            <span className="inline-flex items-center gap-1">
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              {getDeliveryFrequencyLabel(item.deliveryPlan)}
-            </span>
+        {item.deliveryPlan && item.deliveryPlan !== "none" && (
+          <div className="text-xs text-gray-600 mt-1 flex items-center gap-1">
+            <svg className="h-3.5 w-3.5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            {getDeliveryFrequencyLabel(item.deliveryPlan)}
           </div>
         )}
-        <div className="flex items-center justify-between mt-1.5 gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-600">Qty:</span>
-            <div className="flex items-center border border-gray-300 rounded-md">
-              <button
-                onClick={handleDecrement}
-                disabled={item.qty <= 1}
-                className="px-2 py-1 text-gray-600 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                aria-label="Decrease quantity"
-              >
-                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-                </svg>
-              </button>
-              <input
-                type="number"
-                min="1"
-                value={item.qty}
-                onChange={(e) => handleQtyChange(Number(e.target.value))}
-                className="w-12 text-center text-sm font-medium text-gray-900 border-0 focus:ring-0 focus:outline-none py-1"
-              />
-              <button
-                onClick={handleIncrement}
-                className="px-2 py-1 text-gray-600 hover:bg-gray-200 transition-colors"
-                aria-label="Increase quantity"
-              >
-                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
-            </div>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="inline-flex items-center rounded-full border border-gray-200 bg-white">
+            <button
+              onClick={handleDecrement}
+              disabled={item.qty <= 1}
+              className="px-2 py-1 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Decrease quantity"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+              </svg>
+            </button>
+            <input
+              type="number"
+              min="1"
+              value={item.qty}
+              onChange={(e) => handleQtyChange(Number(e.target.value))}
+              className="w-12 border-0 bg-transparent text-center text-sm font-semibold text-gray-900 focus:outline-none focus:ring-0"
+              aria-label="Quantity"
+            />
+            <button
+              onClick={handleIncrement}
+              className="px-2 py-1 text-gray-600 hover:bg-gray-50"
+              aria-label="Increase quantity"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-gray-900">{formatPrice(Number(item.price) * item.qty)}</span>
+          <div className="flex items-center justify-between gap-3 sm:justify-end">
+            {(() => {
+              const priceInfo = formatPriceWithLabel(item.price, item.tax_class, item.tax_status);
+              const totalPrice = Number(item.price) * item.qty;
+              const totalInfo = formatPriceWithLabel(totalPrice.toString(), item.tax_class, item.tax_status);
+              return (
+                <div className="text-right">
+                  <div className="text-base font-semibold text-gray-900">
+                    {totalInfo.label ? `${totalInfo.label}: ${totalInfo.price}` : totalInfo.price}
+                  </div>
+                  {priceInfo.label && (
+                    <div className="text-xs text-gray-500">
+                      {priceInfo.label}: {priceInfo.price} each
+                    </div>
+                  )}
+                  {totalInfo.exclPrice && (
+                    <div className="text-[11px] text-gray-400">
+                      Excl. GST: {totalInfo.exclPrice}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <button 
               onClick={() => onRemove(item.id)} 
-              className="rounded p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors" 
+              className="rounded-full p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors" 
               aria-label="Remove item"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -169,9 +212,9 @@ export default function MiniCartDrawer() {
 				/>
 				
 				{/* Panel */}
-				<aside className={`absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl transition-transform duration-300 ease-out flex flex-col overflow-hidden ${isOpen ? "translate-x-0" : "translate-x-full"}`} suppressHydrationWarning>
+				<aside className={`absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl transition-transform duration-300 ease-out flex flex-col overflow-y-auto ${isOpen ? "translate-x-0" : "translate-x-full"}`} suppressHydrationWarning>
 					{/* Header - Compact */}
-					<div className="bg-gradient-to-r from-gray-900 to-gray-800 px-4 py-3 flex items-center justify-between flex-shrink-0" suppressHydrationWarning>
+					<div className="bg-linear-to-r from-gray-900 to-gray-800 px-4 py-3 flex items-center justify-between shrink-0" suppressHydrationWarning>
 						<div>
 							<h2 className="text-base font-bold text-white">Cart</h2>
 							<p className="text-xs text-gray-300">{items.length} {items.length === 1 ? 'item' : 'items'}</p>
@@ -187,8 +230,7 @@ export default function MiniCartDrawer() {
 						</button>
 					</div>
 
-					{/* Cart Items - Scrollable */}
-					<div className="flex-1 overflow-y-auto min-h-0" suppressHydrationWarning>
+					<div className="flex-1" suppressHydrationWarning>
 						{items.length === 0 ? (
 							<div className="flex flex-col items-center justify-center py-16 px-4 text-center" suppressHydrationWarning>
 								<div className="mb-3 rounded-full bg-gray-100 p-5">
@@ -206,85 +248,100 @@ export default function MiniCartDrawer() {
 								))}
 							</div>
 						)}
-					</div>
 
-					{/* Summary Section - Fixed at bottom, Compact */}
-					{items.length > 0 && (
-						<div className="border-t bg-gray-50 flex-shrink-0" suppressHydrationWarning>
-							<div className="p-3 space-y-3">
+						{items.length > 0 && (
+							<div className="border-t bg-gray-50" suppressHydrationWarning>
+								<div className="p-3 space-y-3">
 								{/* Shipping Options - Always Visible */}
 								{isOpen && items.length > 0 && (
-									<ShippingOptions
-										country={shippingCountry}
-										zone={shippingZone}
-										subtotal={subtotal}
-										items={items}
-										selectedRateId={selectedRateId}
-										onRateChange={(rateId, rate) => {
-											setSelectedRateId(rateId);
-											setSelectedShippingRate({ cost: rate.cost, label: rate.label });
-										}}
-										showLabel={true}
-										className=""
-									/>
+									<div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+										<div className="flex items-center justify-between">
+											<div>
+												<p className="text-xs uppercase tracking-wide text-gray-400">Delivery method</p>
+												<p className="text-sm font-semibold text-gray-900">
+													{selectedShippingRate?.label || "Choose a shipping option"}
+												</p>
+											</div>
+											<div className="text-base font-bold text-gray-900">
+												{selectedShippingRate ? formatPrice(selectedShippingRate.cost) : "--"}
+											</div>
+										</div>
+										<p className="text-xs text-gray-500">
+											Select a shipping service that works best for your order.
+										</p>
+										<ShippingOptions
+											country={shippingCountry}
+											zone={shippingZone}
+											subtotal={subtotal}
+											items={items}
+											selectedRateId={selectedRateId}
+											onRateChange={(rateId, rate) => {
+												setSelectedRateId(rateId);
+												setSelectedShippingRate({ cost: rate.cost, label: sanitizeString(rate.label || "") });
+											}}
+											showLabel={false}
+											className="space-y-2"
+										/>
+									</div>
 								)}
 
-								{/* Coupon - Compact */}
-								<CouponInput />
+								<div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+									<div className="text-sm font-semibold text-gray-900">Have a promo code?</div>
+									<CouponInput />
+								</div>
 
-								{/* Totals - Compact */}
-								<div className="bg-white rounded-lg border border-gray-200 p-3 space-y-1.5">
-									<div className="flex items-center justify-between text-xs">
+								<div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-2">
+									<div className="flex items-center justify-between text-sm">
 										<span className="text-gray-600">Subtotal</span>
 										<span className="font-medium text-gray-900">{formatPrice(subtotal)}</span>
 									</div>
-									<div className="flex items-center justify-between text-xs">
+									<div className="flex items-center justify-between text-sm">
 										<span className="text-gray-600">Shipping</span>
 										<span className="font-medium text-gray-900">{formatPrice(shippingAmount)}</span>
 									</div>
 									{couponDiscount > 0 && (
-										<div className="flex items-center justify-between text-xs text-emerald-600">
+										<div className="flex items-center justify-between text-sm text-emerald-600">
 											<span>Discount</span>
 											<span className="font-medium">−{formatPrice(couponDiscount)}</span>
 										</div>
 									)}
-									<div className="pt-1.5 border-t border-gray-200">
+									<div className="border-t border-gray-100 pt-3">
 										<div className="flex items-center justify-between">
-											<span className="text-sm font-bold text-gray-900">Total</span>
-											<span className="text-lg font-bold text-teal-600">{formatPrice(grandTotal)}</span>
+											<span className="text-base font-bold text-gray-900">Total</span>
+											<span className="text-2xl font-bold text-teal-600">{formatPrice(grandTotal)}</span>
 										</div>
+										<p className="text-xs text-gray-500 mt-0.5">GST calculated at checkout if applicable.</p>
 									</div>
 								</div>
 
-								{/* Action Buttons - Compact */}
-								<div className="flex items-center gap-2">
+								<div className="flex flex-col gap-2 sm:flex-row">
 									<button 
 										onClick={clear} 
-										className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+										className="flex-1 rounded-xl border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
 									>
-										Clear
+										Clear cart
 									</button>
 									{user && (
 										<button 
 											onClick={() => setShowQuoteModal(true)} 
-											className="flex-1 rounded-lg border-2 border-teal-600 bg-white px-3 py-2 text-xs font-semibold text-teal-600 hover:bg-teal-50 transition-colors"
+											className="flex-1 rounded-xl border-2 border-teal-600 bg-white px-3 py-2.5 text-sm font-semibold text-teal-600 hover:bg-teal-50 transition-colors"
 										>
-											Quote
+											Request quote
 										</button>
 									)}
 								</div>
 								
-								{/* Checkout Button - Compact */}
 								<Link
 									href="/checkout"
 									onClick={close}
-									className="block w-full rounded-lg bg-gradient-to-r from-gray-900 to-gray-800 px-3 py-2.5 text-center text-sm font-semibold text-white hover:from-black hover:to-gray-900 transition-all shadow-md hover:shadow-lg"
+									className="block w-full rounded-xl bg-linear-to-r from-gray-900 to-gray-800 px-4 py-3 text-center text-base font-semibold text-white hover:from-black hover:to-gray-900 transition-all shadow-lg hover:shadow-xl"
 								>
-									Checkout
+									Proceed to checkout
 								</Link>
 							</div>
-						</div>
-					)}
+							</div>
+						)}
+					</div>
 				</aside>
 			</div>
 

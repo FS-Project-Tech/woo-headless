@@ -69,7 +69,7 @@ export default function CartProvider({ children }: { children: React.ReactNode }
 			const idx = prev.findIndex((p) => p.id === id);
 			if (idx >= 0) {
 				const next = [...prev];
-				next[idx] = { ...next[idx], qty: next[idx].qty + input.qty };
+				next[idx] = { ...next[idx], ...input, qty: next[idx].qty + input.qty, id: next[idx].id };
 				return next;
 			}
 			return [...prev, { ...input, id } as CartItem];

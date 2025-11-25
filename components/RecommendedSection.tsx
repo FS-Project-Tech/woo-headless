@@ -1,104 +1,123 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
-import ProductCard from "@/components/ProductCard";
+import { useEffect, useRef, useState } from "react";
+import { useMounted } from "@/hooks/useMounted";
 import { getRecentSearchTerms } from "@/lib/history";
+import { ProductCardProduct } from "@/lib/types/product";
+import ProductSectionCard from "@/components/ProductSectionCard";
 
-// Dynamically import ProductsSlider - heavy component with Swiper
-const ProductsSlider = dynamic(() => import("@/components/ProductsSlider"), {
-  loading: () => (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-6">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="h-[420px] animate-pulse rounded-xl border border-gray-200 bg-white" />
-      ))}
-    </div>
-  ),
-  ssr: false, // Client-side only for Swiper
-});
+const mapToProductCardProducts = (items: any[]): ProductCardProduct[] => {
+  if (!Array.isArray(items)) return [];
+  return items
+    .filter((item) => item && typeof item.id === "number" && item.slug && item.name)
+    .map((item) => ({
+      id: item.id,
+      slug: item.slug,
+      name: item.name,
+      sku: item.sku ?? null,
+      price: item.price ?? item.sale_price ?? "0",
+      regular_price: item.regular_price ?? item.regularPrice ?? item.price ?? "0",
+      sale_price: item.sale_price ?? null,
+      on_sale: item.on_sale ?? false,
+      tax_class: item.tax_class,
+      tax_status: item.tax_status,
+      average_rating: item.average_rating,
+      rating_count: item.rating_count,
+      images: item.images
+        ? item.images
+        : item.image
+        ? [{ src: item.image, alt: item.name }]
+        : [],
+    }));
+};
 
-type UnifiedProduct = {
-  id: number;
-  name: string;
-  slug: string;
-  price: string;
-  regular_price?: string;
-  on_sale?: boolean;
-  sku?: string | null;
-  images?: Array<{ src: string; alt?: string }>;
-  average_rating?: string;
-  rating_count?: number;
-  tax_class?: string;
+const fetchFallbackProducts = async (): Promise<ProductCardProduct[]> => {
+  try {
+    const res = await fetch("/api/products?per_page=10&sortBy=popularity", {
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return mapToProductCardProducts(data.products).slice(0, 10);
+  } catch (error) {
+    console.error("RecommendedSection fallback error:", error);
+    return [];
+  }
 };
 
 export default function RecommendedSection() {
-  const [isMounted, setIsMounted] = useState(false);
+  const isMounted = useMounted();
   const [loading, setLoading] = useState(false);
-  const [products, setProducts] = useState<UnifiedProduct[]>([]);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  const [products, setProducts] = useState<ProductCardProduct[]>([]);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     if (!isMounted) return;
-    let mounted = true;
-    const terms = getRecentSearchTerms();
-    if (terms.length === 0) return; // no history yet
+    mountedRef.current = true;
 
-    (async () => {
+    const loadProducts = async () => {
+      const terms = getRecentSearchTerms();
       try {
-        setLoading(true);
-        const top = terms.slice(0, 4);
-        const responses = await Promise.all(
-          top.map((t) => fetch(`/api/search-unified?q=${encodeURIComponent(t)}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : { products: [] }))
-        );
-        const all = responses.flatMap((r: any) => Array.isArray(r.products) ? r.products : []);
-        const seen = new Set<number>();
-        const unique = all.filter((p: any) => {
-          if (!p || typeof p.id !== 'number') return false;
-          if (seen.has(p.id)) return false;
-          seen.add(p.id);
-          return true;
-        }).slice(0, 10);
-        if (mounted) setProducts(unique);
-      } catch {
-        if (mounted) setProducts([]);
+        if (mountedRef.current) setLoading(true);
+
+        let recommended: ProductCardProduct[] = [];
+
+        if (terms.length > 0) {
+          const top = terms.slice(0, 4);
+          const responses = await Promise.all(
+            top.map((t) =>
+              fetch(`/api/search-unified?q=${encodeURIComponent(t)}`, {
+                cache: "no-store",
+              }).then((r) => (r.ok ? r.json() : { products: [] }))
+            )
+          );
+          const all = responses.flatMap((r: any) =>
+            Array.isArray(r.products) ? r.products : []
+          );
+          const seen = new Set<number>();
+          const uniqueSearchResults = all.filter((p: any) => {
+            if (!p || typeof p.id !== "number") return false;
+            if (seen.has(p.id)) return false;
+            seen.add(p.id);
+            return true;
+          });
+          recommended = mapToProductCardProducts(uniqueSearchResults).slice(0, 10);
+        }
+
+        if (recommended.length === 0) {
+          recommended = await fetchFallbackProducts();
+        }
+
+        if (mountedRef.current) setProducts(recommended);
+      } catch (error) {
+        console.error("RecommendedSection error:", error);
+        if (mountedRef.current) {
+          const fallback = await fetchFallbackProducts();
+          setProducts(fallback);
+        }
       } finally {
-        if (mounted) setLoading(false);
+        if (mountedRef.current) setLoading(false);
       }
-    })();
-    return () => { mounted = false; };
+    };
+
+    loadProducts();
+    return () => {
+      mountedRef.current = false;
+    };
   }, [isMounted]);
 
-  const hasData = products.length > 0;
-
-  // Don't render anything until mounted to prevent hydration mismatch
   if (!isMounted) return null;
-  if (!loading && !hasData) return null; // hide section if nothing to show
+  if (!loading && products.length === 0) return null;
 
   return (
-    <section className="mb-10">
-      <div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
-        <div className="rounded-xl bg-violet-50 p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Products you may be looking for</h2>
-              <p className="text-sm text-gray-600">Based on your recent searches</p>
-            </div>
-          </div>
-          {loading && products.length === 0 ? (
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-[420px] animate-pulse rounded-xl border border-gray-200 bg-white" />
-              ))}
-            </div>
-          ) : (
-            <ProductsSlider products={products} />
-          )}
-        </div>
-      </div>
-    </section>
+    <ProductSectionCard
+      title="Products you may be looking for"
+      subtitle="Based on your recent searches"
+      products={products}
+      loading={loading}
+      variant="default"
+      bgColor="violet"
+    />
   );
 }
 

@@ -4,16 +4,12 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import AnimatedSection from "@/components/AnimatedSection";
+import Container from "@/components/Container";
+import ProductsSliderSkeleton from "@/components/skeletons/ProductsSliderSkeleton";
 
 // Dynamically import ProductsSlider - heavy component with Swiper
 const ProductsSlider = dynamic(() => import("@/components/ProductsSlider"), {
-  loading: () => (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-6">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="h-[420px] animate-pulse rounded-xl border border-gray-200 bg-white" />
-      ))}
-    </div>
-  ),
+  loading: () => <ProductsSliderSkeleton />,
   ssr: false, // Client-side only for Swiper
 });
 
@@ -30,7 +26,7 @@ export default function ProductSectionWrapper(props: ProductSectionWrapperProps)
   return (
     <AnimatedSection>
       <section className="mb-16" suppressHydrationWarning>
-        <div className={`mx-auto w-[85vw] px-4 sm:px-6 lg:px-8 py-6`} suppressHydrationWarning>
+        <Container className="py-6" suppressHydrationWarning>
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -65,7 +61,7 @@ export default function ProductSectionWrapper(props: ProductSectionWrapperProps)
           ) : (
             <ProductsSlider products={products} />
           )}
-        </div>
+        </Container>
       </section>
     </AnimatedSection>
   );

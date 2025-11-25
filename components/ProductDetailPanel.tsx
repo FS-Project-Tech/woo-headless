@@ -2,9 +2,6 @@
 
 import type { WooCommerceProduct, WooCommerceVariation } from "@/lib/woocommerce";
 import { useMemo, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import VariationSwatches from "@/components/VariationSwatches";
 import ProductVariations from "@/components/ProductVariations";
 import RecurringSelect, { RecurringPlan } from "@/components/RecurringSelect";
 import ServiceFeatures from "@/components/ServiceFeatures";
@@ -12,17 +9,10 @@ import { useCart } from "@/components/CartProvider";
 import { useWishlist } from "@/hooks/useWishlist";
 import { useToast } from "@/components/ToastProvider";
 import { useAuth } from "@/components/AuthProvider";
-
-function pushViewedProduct(productId: number, categoryIds: number[]) {
-    try {
-        if (typeof window === 'undefined') return;
-        const key = '_viewed_products';
-        const raw = window.localStorage.getItem(key);
-        const list: Array<{ id: number; cats: number[] }> = raw ? JSON.parse(raw) : [];
-        const next = [{ id: productId, cats: categoryIds }, ...list.filter((x) => x.id !== productId)].slice(0, 20);
-        window.localStorage.setItem(key, JSON.stringify(next));
-    } catch {}
-}
+import { formatPriceWithLabel } from "@/lib/format-utils";
+import { matchVariation, findBrand, isAllSelected, extractProductBrands } from "@/lib/utils/product";
+import { useViewedProduct } from "@/hooks/useViewedProducts";
+import ConsultationFormModal from "@/components/ConsultationFormModal";
 
 export default function ProductDetailPanel({ product, variations }: { product: WooCommerceProduct; variations: WooCommerceVariation[] }) {
 	const [plan, setPlan] = useState<RecurringPlan>("none");
@@ -38,7 +28,25 @@ const attributes = useMemo(() => {
         .map((a: any) => ({ name: a.name as string, options: a.options as string[] }));
 }, [product.attributes]);
 
-	const brand = findBrand(product);
+	const brandList = useMemo(() => extractProductBrands(product), [product]);
+	const brand = brandList.length > 0 ? brandList.map((b) => b.name).filter(Boolean).join(", ") : findBrand(product);
+
+	// Check if product has resources (downloads or meta_data with resource)
+	const hasResources = useMemo(() => {
+		// Check downloads array
+		if (product.downloads && Array.isArray(product.downloads) && product.downloads.length > 0) {
+			return true;
+		}
+		// Check meta_data for resource fields
+		if (product.meta_data && Array.isArray(product.meta_data)) {
+			const resourceKeys = ['resource', 'resources', 'resource_url', 'resource_file', 'download_resource'];
+			return product.meta_data.some((meta: any) => {
+				const key = String(meta.key || '').toLowerCase();
+				return resourceKeys.some(rk => key.includes(rk)) && meta.value;
+			});
+		}
+		return false;
+	}, [product.downloads, product.meta_data]);
 
 	const displayPrice = matchedVariation?.price || matched?.price || product.price;
 	const displayRegular = matchedVariation?.regular_price || matched?.regular_price || product.regular_price;
@@ -47,21 +55,19 @@ const attributes = useMemo(() => {
     const { wishlist, addToWishlist, removeFromWishlist, isAdding, isRemoving } = useWishlist();
     const { success, error: showError } = useToast();
     const { user, loading: authLoading } = useAuth();
-    const router = useRouter();
-    const [quantity, setQuantity] = useState<number>(1);
-    const [wishlisted, setWishlisted] = useState<boolean>(false);
-    const [addingToCart, setAddingToCart] = useState(false);
+	const [quantity, setQuantity] = useState<number>(1);
+	const [wishlisted, setWishlisted] = useState<boolean>(false);
+	const [addingToCart, setAddingToCart] = useState(false);
+	const [isConsultationModalOpen, setIsConsultationModalOpen] = useState(false);
+
+	// Track viewed product
+	const categoryIds = (product.categories || []).map((c) => c.id);
+	useViewedProduct(product.id, categoryIds);
 
 	// Check if product is in wishlist on mount and when wishlist changes
 	useEffect(() => {
 		setWishlisted(wishlist.includes(product.id));
 	}, [wishlist, product.id]);
-
-    // Track viewed product in localStorage
-    useEffect(() => {
-        const catIds = (product.categories || []).map((c) => c.id);
-        pushViewedProduct(product.id, catIds);
-    }, [product.id, product.categories]);
 
 	const handleWishlistToggle = async () => {
 		if (isAdding || isRemoving) return;
@@ -105,7 +111,9 @@ const attributes = useMemo(() => {
 			<div>
 				<h1 className="text-3xl font-bold text-gray-900">{product.name}</h1>
 				<div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500">
-					<span>SKU: {currentSku || product.sku || "N/A"}</span>
+					{currentSku || product.sku ? (
+						<span>SKU: {currentSku || product.sku}</span>
+					) : null}
 					{brand && <span>Brand: {brand}</span>}
 					{product.categories && product.categories.length > 0 && (
 						<span>Category: {product.categories.map((c) => c.name).join(", ")}</span>
@@ -118,32 +126,37 @@ const attributes = useMemo(() => {
 				<div className="text-gray-900">
 					{(() => {
 						const raw = Number(displayPrice || 0);
-						const reg = Number(displayRegular || 0);
-						const taxClassSlug = String(product.tax_class || "").toLowerCase().replace(/\s+/g, "-");
-						const isGst10 = taxClassSlug === "gst-10" || taxClassSlug === "gst10" || taxClassSlug === "gst";
-						const isGstFree = taxClassSlug === "gst-free" || taxClassSlug === "gstfree";
-
-						if (!isNaN(raw) && raw > 0) {
-							if (isGst10) {
-								const excl = raw;
-								const incl = raw * 1.10;
-								return (
-									<div className="space-y-0.5">
-										<div className="text-2xl font-semibold text-[#1f605f]">Incl. GST: ${incl.toFixed(2)}</div>
-										<div className="text-sm text-[#1f605f]">Excl. GST: ${excl.toFixed(2)}</div>
-									</div>
-								);
-							}
-							if (isGstFree) {
-								return (
-									<div className="space-y-1">
-										<div className="text-2xl font-semibold text-[#1f605f]">${raw.toFixed(2)}</div>
-										<div className="text-[11px] inline-flex items-center rounded bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">GST FREE</div>
-									</div>
-								);
-							}
+						if (isNaN(raw) || raw <= 0) {
+							return <span className="text-2xl font-semibold text-[#1f605f]">${displayPrice}</span>;
 						}
-						return <span className="text-2xl font-semibold text-[#1f605f]">${displayPrice}</span>;
+
+						const taxClass = matchedVariation?.tax_class || matched?.tax_class || product.tax_class;
+						const taxStatus = matchedVariation?.tax_status || matched?.tax_status || product.tax_status;
+						const priceInfo = formatPriceWithLabel(raw, taxClass, taxStatus);
+
+						if (priceInfo.taxType === "gst_free") {
+							return (
+								<div className="space-y-1">
+									<div className="text-2xl font-semibold text-[#1f605f]">
+										{priceInfo.label}: {priceInfo.price}
+									</div>
+									<div className="text-[11px] inline-flex items-center rounded bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">
+										GST FREE
+									</div>
+								</div>
+							);
+						}
+
+						return (
+							<div className="space-y-0.5">
+								<div className="text-2xl font-semibold text-[#1f605f]">
+									{priceInfo.label}: {priceInfo.price}
+								</div>
+								{priceInfo.exclPrice ? (
+									<div className="text-sm text-[#1f605f]">Excl. GST: {priceInfo.exclPrice}</div>
+								) : null}
+							</div>
+						);
 					})()}
 				</div>
 				{/* Regular price and sale badge */}
@@ -189,15 +202,35 @@ const attributes = useMemo(() => {
                 />
             </div>
 
-            {/* Consult Before Buying Button */}
-            <div className="pt-2">
-                <Link
-                    href={`/products/${product.slug}/consult`}
-                    className="block w-full text-center rounded-md border-2 border-[#1f605f] bg-transparent px-4 py-3 text-sm font-medium text-[#1f605f] transition hover:bg-[#1f605f] hover:text-white mb-3"
-                >
-                    Consult Before Buying
-                </Link>
-            </div>
+            {/* Resource Button */}
+            {hasResources && (
+                <div className="pt-2">
+                    <button
+                        onClick={() => {
+                            // Open resources - check if downloads exist or get from meta_data
+                            if (product.downloads && product.downloads.length > 0) {
+                                // Open first download or show list
+                                const firstDownload = product.downloads[0];
+                                if (firstDownload.file) {
+                                    window.open(firstDownload.file, '_blank');
+                                }
+                            } else if (product.meta_data) {
+                                // Find resource URL from meta_data
+                                const resourceMeta = product.meta_data.find((meta: any) => {
+                                    const key = String(meta.key || '').toLowerCase();
+                                    return ['resource', 'resource_url', 'resource_file'].some(rk => key.includes(rk)) && meta.value;
+                                });
+                                if (resourceMeta?.value) {
+                                    window.open(resourceMeta.value, '_blank');
+                                }
+                            }
+                        }}
+                        className="block w-full text-center rounded-md border-2 border-blue-600 bg-transparent px-4 py-3 text-sm font-medium text-blue-600 transition hover:bg-blue-600 hover:text-white"
+                    >
+                        Resource
+                    </button>
+                </div>
+            )}
 
             <div className="pt-2 flex items-center gap-3">
 				<button
@@ -211,6 +244,8 @@ const attributes = useMemo(() => {
 							await new Promise(resolve => setTimeout(resolve, 500));
 
 							const variationId = matchedVariation?.id || matched?.id;
+							const variationTaxClass = matchedVariation?.tax_class || matched?.tax_class || product.tax_class || undefined;
+							const variationTaxStatus = matchedVariation?.tax_status || matched?.tax_status || product.tax_status || undefined;
 							addItem({
 								productId: product.id,
 								variationId,
@@ -222,6 +257,8 @@ const attributes = useMemo(() => {
 								sku: matchedVariation?.sku || matched?.sku || product.sku || undefined,
 								attributes: selected,
 								deliveryPlan: plan,
+								tax_class: variationTaxClass,
+								tax_status: variationTaxStatus,
 							});
 
 							// Open mini cart drawer
@@ -266,65 +303,41 @@ const attributes = useMemo(() => {
                 <p className="text-sm text-red-600">Please select all variations before adding to cart.</p>
             )}
 
+            {/* Need Consultation Link */}
+            <div className="pt-2">
+                <button
+                    onClick={() => setIsConsultationModalOpen(true)}
+                    className="flex items-center gap-2 text-sm text-[#1f605f] hover:text-[#1a4d4c] transition-colors underline"
+                >
+                    <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg"
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                    </svg>
+                    <span>Need Consultation</span>
+                </button>
+            </div>
+
 			{/* Service Features Section */}
 			<div className="pt-6 border-t border-gray-200">
 				<ServiceFeatures />
 			</div>
 
+			{/* Consultation Form Modal */}
+			<ConsultationFormModal
+				isOpen={isConsultationModalOpen}
+				onClose={() => setIsConsultationModalOpen(false)}
+				productName={product.name}
+			/>
 		</div>
 	);
-}
-
-function matchVariation(variations: WooCommerceVariation[], selected: { [name: string]: string }) {
-	const names = Object.keys(selected);
-	if (names.length === 0) return null;
-	return (
-		variations.find((v) => names.every((n) => v.attributes.some((a) => eq(a.name, n) && eq(a.option, selected[n])))) || null
-	);
-}
-
-function findBrand(product: WooCommerceProduct): string | null {
-	// Try to read brand from attributes commonly named 'Brand' or 'pa_brand'
-	const attr = (product.attributes || []).find((a: any) => eq(a.name, "brand") || eq(a.name, "pa_brand") || eq(a.name, "Brand"));
-	if (attr) {
-		const opts = (attr.options as string[]) || [];
-		if (opts.length > 0) return opts[0];
-	}
-	return null;
-}
-
-function eq(a?: string, b?: string) {
-	return (a || "").toLowerCase() === (b || "").toLowerCase();
-}
-
-function renderFeatures(product: WooCommerceProduct) {
-	const meta = (product as any).meta_data as Array<{ key: string; value: any }> | undefined;
-	const keys = ["features", "benefits", "features_and_benefits"];
-	const found = meta?.find((m) => keys.includes(String(m.key).toLowerCase()));
-	if (found) {
-		if (typeof found.value === "string") {
-			return <div dangerouslySetInnerHTML={{ __html: found.value }} />;
-		}
-		if (Array.isArray(found.value)) {
-			return (
-				<ul className="list-disc pl-5">
-					{found.value.map((v: any, i: number) => (
-						<li key={i}>{String(v)}</li>
-					))}
-				</ul>
-			);
-		}
-	}
-	return (
-		<ul className="list-disc pl-5">
-			{product.categories?.length ? <li>Categories: {product.categories.map((c) => c.name).join(", ")}</li> : null}
-			{product.tags?.length ? <li>Tags: {product.tags.map((t) => t.name).join(", ")}</li> : null}
-			{!product.categories?.length && !product.tags?.length ? <li>No features available.</li> : null}
-		</ul>
-	);
-}
-
-function isAllSelected(selected: { [name: string]: string }, attrs: { name: string; options: string[] }[]) {
-	if (!attrs || attrs.length === 0) return true;
-	return attrs.every((a) => !!selected[a.name]);
 }

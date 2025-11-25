@@ -394,6 +394,7 @@ export default function ProductGrid({ categorySlug }: ProductGridProps) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: index * 0.03 }}
               layout
+              className="h-full"
             >
               <ProductCard
                 id={product.id}
@@ -404,7 +405,8 @@ export default function ProductGrid({ categorySlug }: ProductGridProps) {
                 sale_price={product.sale_price}
                 regular_price={product.regular_price}
                 on_sale={product.on_sale}
-                tax_class={product.tax_class}
+					tax_class={product.tax_class}
+					tax_status={product.tax_status}
                 average_rating={product.average_rating}
                 rating_count={product.rating_count}
                 imageUrl={product.images?.[0]?.src}

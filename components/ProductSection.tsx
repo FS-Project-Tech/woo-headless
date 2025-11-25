@@ -36,12 +36,27 @@ export default async function ProductSection(props: ProductSectionProps) {
         featured: query?.featured,
       });
       
-      return fetchedProducts;
+      if (Array.isArray(fetchedProducts) && fetchedProducts.length > 0) {
+        return fetchedProducts;
+      }
     } catch (error) {
       // Don't log here - errors are already logged by the interceptor
-      // Only log in development if it's a non-response error
       if (process.env.NODE_ENV === 'development' && !(error as any)?.response) {
-        console.error(`[ProductSection: ${title}] Network error:`, error);
+        console.error(`[ProductSection: ${title}] primary fetch error`, error);
+      }
+    }
+
+    // Fallback: fetch popular products to keep the section populated
+    try {
+      const fallbackProducts = await fetchProducts({
+        per_page: 10,
+        orderby: "popularity",
+        order: "desc",
+      });
+      return fallbackProducts;
+    } catch (fallbackError) {
+      if (process.env.NODE_ENV === 'development' && !(fallbackError as any)?.response) {
+        console.error(`[ProductSection: ${title}] fallback fetch error`, fallbackError);
       }
       return [] as Awaited<ReturnType<typeof fetchProducts>>;
     }
