@@ -109,7 +109,7 @@ export default async function Home({
         </Suspense>
       </AnimatedSection>
 
-      {/* Trending */}
+      {/* Clearance products (on sale) */}
       <AnimatedSection>
         <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded" />}>
           <TrendingSection />
@@ -136,6 +136,13 @@ export default async function Home({
           query={{ categorySlug: continenceSlug }}
         />
       </Suspense>
+
+      {/* Clearance products (on sale) */}
+      <AnimatedSection>
+        <Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 rounded" />}>
+          <TrendingSection />
+        </Suspense>
+      </AnimatedSection>
 
       {/* Interstitial CTA banner (hidden on mobile) */}
       <div className="hidden sm:block mx-auto w-[85vw] px-4 sm:px-6 lg:px-8 mb-16">

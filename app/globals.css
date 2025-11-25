@@ -120,3 +120,14 @@ body {
   opacity: 0.5;
   pointer-events: none;
 }
+
+/* Category Swiper - Equal height slides */
+.category-swiper .swiper-slide {
+  height: auto;
+  display: flex;
+}
+
+.category-swiper .swiper-slide > div {
+  width: 100%;
+  display: flex;
+}

@@ -9,7 +9,7 @@ import Link from "next/link";
 import ShippingOptions from "@/components/ShippingOptions";
 import { useShippingAddress } from "@/hooks/useShippingAddress";
 import { calculateSubtotal, calculateGST, calculateTotal } from "@/lib/cart-utils";
-import { formatPrice } from "@/lib/format-utils";
+import { formatPrice, formatPriceWithLabel } from "@/lib/format-utils";
 import { getDeliveryFrequencyLabel } from "@/lib/delivery-utils";
 
 function CartPageContent() {
@@ -149,8 +149,26 @@ function CartPageContent() {
                               />
                             </div>
                             <div className="text-right">
-                              <div className="font-semibold text-gray-900">{formatPrice(Number(i.price || 0) * i.qty)}</div>
-                              <div className="text-xs text-gray-500">{formatPrice(i.price)} each</div>
+                              {(() => {
+                                const priceInfo = formatPriceWithLabel(i.price, i.tax_class, i.tax_status);
+                                const totalPrice = Number(i.price || 0) * i.qty;
+                                const totalInfo = formatPriceWithLabel(totalPrice.toString(), i.tax_class, i.tax_status);
+                                return (
+                                  <div className="space-y-0.5">
+                                    <div className="font-semibold text-gray-900">
+                                      {totalInfo.label ? `${totalInfo.label}: ${totalInfo.price}` : totalInfo.price}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      {priceInfo.label ? `${priceInfo.label}: ${priceInfo.price}` : priceInfo.price} each
+                                    </div>
+                                    {totalInfo.exclPrice && (
+                                      <div className="text-xs text-gray-400">
+                                        Excl. GST: {totalInfo.exclPrice} total
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
                           <button 

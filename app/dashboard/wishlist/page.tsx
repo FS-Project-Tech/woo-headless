@@ -105,6 +105,7 @@ export default function DashboardWishlist() {
                     regular_price={product.regular_price}
                     on_sale={product.on_sale}
                     tax_class={product.tax_class}
+                    tax_status={product.tax_status}
                     average_rating={product.average_rating}
                     rating_count={product.rating_count}
                     imageUrl={product.images?.[0]?.src}

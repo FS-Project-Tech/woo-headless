@@ -1,14 +1,25 @@
-import wcAPI, { fetchProductBySlug, fetchProductVariations, fetchProducts, WooCommerceVariation } from '@/lib/woocommerce';
-import ProductGallery from '@/components/ProductGallery';
-import ProductDetailPanel from '@/components/ProductDetailPanel';
-import ProductInfoAccordion from '@/components/ProductInfoAccordion';
-import ServiceFeatures from '@/components/ServiceFeatures';
-import { notFound } from 'next/navigation';
-import Image from 'next/image';
-import ProductCard from '@/components/ProductCard';
-import Breadcrumbs from '@/components/Breadcrumbs';
-import { ProductStructuredData, BreadcrumbStructuredData } from '@/components/StructuredData';
-import type { Metadata } from 'next';
+import wcAPI, {
+  fetchProductBySlug,
+  fetchProductVariations,
+  fetchProducts,
+  WooCommerceVariation,
+} from "@/lib/woocommerce";
+import ProductGallery from "@/components/ProductGallery";
+import ProductDetailPanel from "@/components/ProductDetailPanel";
+import ProductInfoAccordion from "@/components/ProductInfoAccordion";
+import { notFound } from "next/navigation";
+import Image from "next/image";
+import Breadcrumbs from "@/components/Breadcrumbs";
+import {
+  ProductStructuredData,
+  BreadcrumbStructuredData,
+} from "@/components/StructuredData";
+import type { Metadata } from "next";
+import Container from "@/components/Container";
+import { ProductCardProduct } from "@/lib/types/product";
+import RelatedProductsSection from "@/components/RelatedProductsSection";
+import CategoryBrandsSection from "@/components/CategoryBrandsSection";
+import { extractProductBrands } from "@/lib/utils/product";
 
 
 
@@ -80,11 +91,6 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 		}
 	})();
 
-	// Calculate price for structured data
-	const price = product.on_sale && product.sale_price 
-		? product.sale_price 
-		: product.price || product.regular_price;
-
 	// Related products by first category
 	const firstCategoryId = product.categories?.[0]?.id;
 	const [topSelling, similar] = await Promise.all([
@@ -117,15 +123,41 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 		})(),
 	]);
 
-	// Breadcrumb items for structured data
+	// Breadcrumb items for structured data and UI
 	const breadcrumbItems = [
-		{ label: 'Home', href: '/' },
-		{ label: 'Shop', href: '/shop' },
-		...(product.categories?.[0] 
-			? [{ label: product.categories[0].name, href: `/product-category/${product.categories[0].slug}` }] 
+		{ label: "Home", href: "/" },
+		{ label: "Shop", href: "/shop" },
+		...(product.categories?.[0]
+			? [
+					{
+						label: product.categories[0].name,
+						href: `/product-category/${product.categories[0].slug}`,
+					},
+			  ]
 			: []),
 		{ label: product.name },
 	];
+
+	// Convert products to ProductCardProduct format
+	const toProductCardProduct = (
+		p: Awaited<ReturnType<typeof fetchProducts>>[0]
+	): ProductCardProduct => ({
+		id: p.id,
+		slug: p.slug,
+		name: p.name,
+		sku: p.sku,
+		price: p.price,
+		sale_price: p.sale_price,
+		regular_price: p.regular_price,
+		on_sale: p.on_sale,
+		tax_class: p.tax_class,
+		tax_status: p.tax_status,
+		average_rating: p.average_rating,
+		rating_count: p.rating_count,
+		images: p.images,
+	});
+
+	const productBrands = extractProductBrands(product);
 
 	return (
 		<>
@@ -134,10 +166,11 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 			<BreadcrumbStructuredData items={breadcrumbItems} />
 			
 			<div className="min-h-screen py-12">
-				<div className="mx-auto w-[85vw] px-4 sm:px-6 lg:px-8">
-					<Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'Shop', href: '/shop' }, ...(product.categories?.[0] ? [{ label: product.categories[0].name, href: `/product-category/${product.categories[0].slug}` }] : []), { label: product.name }]} />
-				</div>
-			<div className="mx-auto w-[85vw] grid grid-cols-1 gap-6 px-4 sm:px-6 lg:grid-cols-5 lg:gap-10 lg:px-8">
+				<Container>
+					<Breadcrumbs items={breadcrumbItems} />
+				</Container>
+
+				<Container className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:gap-10 mt-6">
 				{/* Left: Gallery (40%) */}
 				<div className="lg:col-span-2">
 					<ProductGallery images={(product.images || []).map((img) => ({ id: img.id, src: img.src, alt: img.alt, name: img.name }))} />
@@ -158,11 +191,11 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 						/>
 					</div>
 				</div>
-			</div>
+				</Container>
 
 			{/* Full-width description section */}
 			{product && (
-				<div className="mx-auto mt-10 max-w-8xl px-4 sm:px-6 lg:px-8">
+				<Container className="mt-10">
 					<div className="grid grid-cols-1 gap-8 lg:grid-cols-5">
 						{/* Left 60% - Accordions */}
 						<div className="lg:col-span-3">
@@ -195,63 +228,28 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 							})()}
 						</div>
 					</div>
-				</div>
+				</Container>
 			)}
 
 			{/* Related sections */}
 			{firstCategoryId && (
-				<div className="mx-auto mt-10 max-w-8xl px-4 sm:px-6 lg:px-8 space-y-10">
+				<Container className="mt-10 space-y-10">
 					{/* Top most selling */}
-					<section>
-						<div className="mb-4 flex items-center justify-between">
-							<h3 className="text-lg font-semibold text-gray-900">Top most selling products</h3>
-							<a href={`/shop?category=${encodeURIComponent(firstCategoryId)}&orderby=popularity`} className="text-sm font-medium text-blue-600 hover:text-blue-700">View all</a>
-						</div>
-						{topSelling.length > 0 ? (
-							<div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-								{topSelling.map((p) => (
-									<ProductCard key={p.id} id={p.id} slug={p.slug} name={p.name} sku={p.sku} price={p.price} sale_price={p.sale_price} regular_price={p.regular_price} on_sale={p.on_sale} tax_class={p.tax_class} average_rating={p.average_rating} rating_count={p.rating_count} imageUrl={p.images?.[0]?.src} imageAlt={p.images?.[0]?.alt || p.name} />
-								))}
-							</div>
-						) : (
-							<div className="text-sm text-gray-600">No products found.</div>
-						)}
-					</section>
+					<RelatedProductsSection
+						title="Top most selling products"
+						viewAllHref={`/shop?category=${encodeURIComponent(firstCategoryId)}&orderby=popularity`}
+						products={topSelling.map(toProductCardProduct)}
+					/>
 
 					{/* Similar products */}
-					<section>
-						<div className="mb-4 flex items-center justify-between">
-							<h3 className="text-lg font-semibold text-gray-900">Similar products</h3>
-							<a href={`/shop?category=${encodeURIComponent(firstCategoryId)}&orderby=date&order=desc`} className="text-sm font-medium text-blue-600 hover:text-blue-700">View all</a>
-						</div>
-						{similar.length > 0 ? (
-							<div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-								{similar.map((p) => (
-									<ProductCard key={p.id} id={p.id} slug={p.slug} name={p.name} sku={p.sku} price={p.price} sale_price={p.sale_price} regular_price={p.regular_price} on_sale={p.on_sale} tax_class={p.tax_class} average_rating={p.average_rating} rating_count={p.rating_count} imageUrl={p.images?.[0]?.src} imageAlt={p.images?.[0]?.alt || p.name} />
-								))}
-							</div>
-						) : (
-							<div className="text-sm text-gray-600">No products found.</div>
-						)}
-					</section>
-
-				</div>
+					<RelatedProductsSection
+						title="Similar products"
+						viewAllHref={`/shop?category=${encodeURIComponent(firstCategoryId)}&orderby=date&order=desc`}
+						products={similar.map(toProductCardProduct)}
+					/>
+				</Container>
 			)}
 		</div>
 		</>
 	);
-}
-
-function renderMetaList(product: any, keys: string[]) {
-    const meta = product?.meta_data as Array<{ key: string; value: any }> | undefined;
-    const found = meta?.find((m) => keys.includes(String(m.key).toLowerCase()));
-    if (!found) return <div className="text-sm text-gray-600">No data available.</div>;
-    const val = found.value;
-    if (typeof val === 'string') return <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: val }} />;
-    if (Array.isArray(val)) return (
-        <ul className="list-disc pl-5">
-            {val.map((v: any, i: number) => (<li key={i}>{String(v)}</li>))}
-        </ul>
-    );
-    return <div className="text-sm text-gray-600">No data available.</div>;
 }
